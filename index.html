@@ -37,10 +37,21 @@
     background: #fff;
     border: 1px solid #e5e7eb;
     border-radius: 999px;
-    padding: 6px 16px 6px 6px;
+    padding: 6px 12px 6px 6px;
     box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 12px rgba(0,0,0,.04);
   }
   .total-card .name { font-weight: 600; font-size: .9rem; }
+  .total-card .rm {
+    border: 0;
+    background: transparent;
+    color: #cbd5e1;
+    font-size: .95rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 3px 5px;
+    border-radius: 6px;
+  }
+  .total-card .rm:hover { color: #ef4444; background: #fef2f2; }
   .total-card .score {
     font-weight: 800;
     font-size: 1rem;
@@ -66,7 +77,14 @@
     flex: 0 0 auto;
     box-shadow: inset 0 -2px 0 rgba(0,0,0,.12);
     user-select: none;
+    cursor: pointer;
+    position: relative;
+    background-size: cover;
+    background-position: center;
+    transition: box-shadow .15s, transform .15s;
   }
+  .avatar:hover { box-shadow: 0 0 0 3px rgba(17,24,39,.15); }
+  .avatar:active { transform: scale(.95); }
   .avatar.small { width: 34px; height: 34px; font-size: .78rem; }
 
   main {
@@ -267,11 +285,59 @@
   }
 
   function avatar(person) {
-    var a = el("div", "avatar", initials(person.name));
+    var a = el("div", "avatar");
+    a.title = person.name + " \u00b7 Foto \u00e4ndern";
     a.style.background = person.color;
-    a.title = person.name;
+    if (person.photo) {
+      a.style.backgroundImage = "url(" + person.photo + ")";
+    } else {
+      a.textContent = initials(person.name);
+    }
+    a.addEventListener("click", function () { pickPhoto(person); });
     return a;
   }
+
+  var fileInput = el("input");
+  fileInput.type = "file";
+  fileInput.accept = "image/*";
+  fileInput.style.display = "none";
+  document.body.appendChild(fileInput);
+  var pendingPerson = null;
+
+  function pickPhoto(person) {
+    pendingPerson = person;
+    fileInput.value = "";
+    fileInput.click();
+  }
+
+  function resizeImage(file, size, cb) {
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      var img = new Image();
+      img.onload = function () {
+        var canvas = document.createElement("canvas");
+        canvas.width = canvas.height = size;
+        var ctx = canvas.getContext("2d");
+        var s = Math.min(img.width, img.height);
+        ctx.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, size, size);
+        cb(canvas.toDataURL("image/jpeg", 0.85));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  fileInput.addEventListener("change", function () {
+    var file = fileInput.files && fileInput.files[0];
+    if (!file || !pendingPerson) return;
+    var person = pendingPerson;
+    resizeImage(file, 160, function (dataUrl) {
+      person.photo = dataUrl;
+      pendingPerson = null;
+      save();
+      render();
+    });
+  });
 
   function renderTotals() {
     var box = document.getElementById("totals");
@@ -284,6 +350,15 @@
       var score = el("span", "score", String(totalOf(p.id)));
       score.style.background = p.color;
       card.appendChild(score);
+      var rm = el("button", "rm", "\u00d7");
+      rm.title = "Person l\u00f6schen";
+      rm.addEventListener("click", function () {
+        if (!confirm(p.name + " l\u00f6schen? Alle Punkte dieser Person gehen verloren.")) return;
+        state.people = state.people.filter(function (x) { return x.id !== p.id; });
+        state.tasks.forEach(function (t) { delete t.counts[p.id]; });
+        save(); render();
+      });
+      card.appendChild(rm);
       box.appendChild(card);
     });
   }

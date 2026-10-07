@@ -18,6 +18,7 @@
     padding: 24px 20px 10px;
     max-width: 720px;
     margin: 0 auto;
+    position: relative;
   }
   .totals {
     display: flex;
@@ -254,6 +255,43 @@
 
   .add-person:active, .add-task:active { transform: scale(.97); }
 
+  .share-btn {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    border: 1px solid #e5e7eb;
+    background: #fff;
+    color: #374151;
+    font-family: inherit;
+    font-size: .82rem;
+    font-weight: 700;
+    border-radius: 999px;
+    padding: 8px 14px;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(15,23,42,.05);
+    transition: transform .15s, box-shadow .15s;
+  }
+  .share-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(15,23,42,.1); }
+  .share-btn:active { transform: scale(.96); }
+
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: 26px;
+    transform: translate(-50%, 20px);
+    background: #111827;
+    color: #fff;
+    font-size: .85rem;
+    font-weight: 600;
+    padding: 11px 20px;
+    border-radius: 999px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .25s, transform .25s;
+    z-index: 50;
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
       animation-duration: .001ms !important;
@@ -265,9 +303,11 @@
 </head>
 <body>
 <header>
+  <button class="share-btn" id="share" title="Link teilen">🔗 Teilen</button>
   <div id="totals" class="totals"></div>
 </header>
 <main id="tasks"></main>
+<div class="toast" id="toast"></div>
 <script>
 (function () {
   var KEY = "haushaltsgame.v1";
@@ -293,15 +333,119 @@
     };
   }
 
-  var state;
-  try {
-    state = JSON.parse(localStorage.getItem(KEY)) || seed();
-  } catch (e) {
-    state = seed();
+  var TOKEN_RE = /^[A-Za-z0-9_-]{6,40}$/;
+  var pathToken = decodeURIComponent(location.pathname).replace(/^\/+|\/+$/g, "");
+  var SERVER_MODE = /^https?:$/.test(location.protocol) && TOKEN_RE.test(pathToken) && !/(^|\.)github\.io$/.test(location.hostname);
+  var knownRev = 0;
+  var pendingSave = false;
+  var saveTimer = null;
+  var pollTimer = null;
+
+  var state = null;
+
+  function loadLocal() {
+    try {
+      return JSON.parse(localStorage.getItem(KEY)) || seed();
+    } catch (e) {
+      return seed();
+    }
+  }
+
+  function normalize(s) {
+    if (!s || typeof s !== "object") return seed();
+    if (!Array.isArray(s.people)) s.people = [];
+    if (!Array.isArray(s.tasks)) s.tasks = [];
+    s.tasks.forEach(function (t) { if (!t.counts || typeof t.counts !== "object") t.counts = {}; });
+    return s;
   }
 
   function save() {
-    localStorage.setItem(KEY, JSON.stringify(state));
+    if (SERVER_MODE) {
+      pendingSave = true;
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(putRemote, 400);
+    } else {
+      try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+    }
+  }
+
+  function putRemote() {
+    fetch("/api/state/" + encodeURIComponent(pathToken), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(state)
+    }).then(function (r) {
+      return r.ok ? r.json() : null;
+    }).then(function (j) {
+      if (j && typeof j.rev === "number") knownRev = j.rev;
+      pendingSave = false;
+    }).catch(function () { pendingSave = false; });
+  }
+
+  function pullRemote() {
+    if (!SERVER_MODE) return;
+    fetch("/api/state/" + encodeURIComponent(pathToken)).then(function (r) {
+      return r.ok ? r.json() : null;
+    }).then(function (data) {
+      if (data && typeof data.rev === "number" && data.rev !== knownRev) {
+        knownRev = data.rev;
+        state = normalize(data.state);
+        render();
+      }
+    }).catch(function () {});
+  }
+
+  function showToast(msg) {
+    var t = document.getElementById("toast");
+    if (!t) return;
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(function () { t.classList.remove("show"); }, 1600);
+  }
+
+  function boot() {
+    if (SERVER_MODE) {
+      fetch("/api/state/" + encodeURIComponent(pathToken)).then(function (r) {
+        if (r.status === 404) {
+          return fetch("/api/new", { method: "POST" }).then(function (x) { return x.json(); }).then(function (j) {
+            location.replace("/" + j.token);
+            return null;
+          });
+        }
+        if (!r.ok) throw new Error("load failed");
+        return r.json();
+      }).then(function (data) {
+        if (!data) return;
+        knownRev = data.rev || 0;
+        state = normalize(data.state);
+        render();
+        pollTimer = setInterval(function () { if (!pendingSave) pullRemote(); }, 12000);
+      }).catch(function () {
+        state = loadLocal();
+        render();
+      });
+      return;
+    }
+
+    if (/^https?:$/.test(location.protocol)) {
+      fetch("/api/ping").then(function (r) {
+        if (!r.ok) throw new Error("no server");
+        return fetch("/api/new", { method: "POST" });
+      }).then(function (r) {
+        if (!r.ok) throw new Error("cannot create");
+        return r.json();
+      }).then(function (j) {
+        location.replace("/" + j.token);
+      }).catch(function () {
+        state = loadLocal();
+        render();
+      });
+      return;
+    }
+
+    state = loadLocal();
+    render();
   }
 
   function countOf(task, personId) {
@@ -596,12 +740,29 @@
 
   function resetFlow() {
     if (!confirm("Alle Daten zur\u00fccksetzen?")) return;
-    localStorage.removeItem(KEY);
+    try { localStorage.removeItem(KEY); } catch (e) {}
     state = seed();
     save(); render();
   }
 
-  render();
+  document.getElementById("share").addEventListener("click", function () {
+    var url = location.href;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(function () {
+        showToast("Link kopiert \u2713");
+      }, function () {
+        window.prompt("Link kopieren:", url);
+      });
+    } else {
+      window.prompt("Link kopieren:", url);
+    }
+  });
+
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden && SERVER_MODE && !pendingSave) pullRemote();
+  });
+
+  boot();
 })();
 </script>
 </body>

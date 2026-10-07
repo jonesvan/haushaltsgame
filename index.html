@@ -114,12 +114,6 @@
     font-weight: 700;
     letter-spacing: -0.01em;
   }
-  .task-head .sub {
-    font-size: .75rem;
-    color: #9ca3af;
-    font-weight: 500;
-    margin-left: 8px;
-  }
   .del {
     border: 0;
     background: transparent;
@@ -287,9 +281,11 @@
   function avatar(person) {
     var a = el("div", "avatar");
     a.title = person.name + " \u00b7 Foto \u00e4ndern";
-    a.style.background = person.color;
+    a.style.backgroundColor = person.color;
     if (person.photo) {
       a.style.backgroundImage = "url(" + person.photo + ")";
+      a.style.backgroundSize = "cover";
+      a.style.backgroundPosition = "center";
     } else {
       a.textContent = initials(person.name);
     }
@@ -371,12 +367,7 @@
 
       var head = el("div", "task-head");
       var title = el("h2", null, task.name);
-      var total = state.people.reduce(function (s, p) { return s + countOf(task, p.id); }, 0);
-      var sub = el("span", "sub", total === 1 ? "1× erledigt" : total + "× erledigt");
-      var hgroup = el("div");
-      hgroup.appendChild(title);
-      hgroup.appendChild(sub);
-      head.appendChild(hgroup);
+      head.appendChild(title);
 
       var del = el("button", "del", "\u00d7");
       del.title = "Aufgabe löschen";

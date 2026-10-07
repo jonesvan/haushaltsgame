@@ -18,25 +18,7 @@
     padding: 24px 20px 10px;
     max-width: 720px;
     margin: 0 auto;
-    position: relative;
   }
-  .sidekick-link {
-    position: absolute;
-    top: 20px;
-    right: 20px;
-    text-decoration: none;
-    font-size: .82rem;
-    font-weight: 700;
-    color: #374151;
-    background: #fff;
-    border: 1px solid #e5e7eb;
-    border-radius: 999px;
-    padding: 8px 14px;
-    box-shadow: 0 2px 8px rgba(15,23,42,.05);
-    transition: transform .15s, box-shadow .15s;
-  }
-  .sidekick-link:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(15,23,42,.1); }
-  .sidekick-link:active { transform: scale(.96); }
   .totals {
     display: flex;
     gap: 12px;
@@ -283,7 +265,6 @@
 </head>
 <body>
 <header>
-  <a class="sidekick-link" href="sidekick.html" target="_blank" rel="noopener">🐣 Sidekick</a>
   <div id="totals" class="totals"></div>
 </header>
 <main id="tasks"></main>

@@ -244,6 +244,7 @@ function sanitizeBook(input) {
         date: String(r && r.date || ""),
         currency: String(r && r.currency || "EUR").slice(0, 8),
         total: round2(r && r.total),
+        personId: String(r && r.personId || "").slice(0, 64),
         createdAt: Number(r && r.createdAt) || Date.now(),
         items: items
       };

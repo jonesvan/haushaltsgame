@@ -91,12 +91,13 @@
     border: 0;
     background: transparent;
     font: inherit;
-    font-size: .85rem;
+    font-size: .8rem;
     font-weight: 700;
     color: var(--muted);
-    padding: 9px 6px;
+    padding: 9px 4px;
     border-radius: 9px;
     cursor: pointer;
+    white-space: nowrap;
     transition: background .12s, color .12s;
   }
   .tab.active {
@@ -104,6 +105,28 @@
     color: var(--text);
     box-shadow: 0 1px 3px rgba(17,24,39,.1);
   }
+
+  .people { display: flex; gap: 8px; overflow-x: auto; padding: 0 0 12px; }
+  .people[hidden] { display: none; }
+  .person-chip {
+    border: 1px solid var(--line);
+    background: var(--card);
+    border-radius: 999px;
+    padding: 7px 14px;
+    font: inherit;
+    font-size: .82rem;
+    font-weight: 700;
+    color: #374151;
+    cursor: pointer;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .person-chip.active { border-color: var(--accent); background: #eff6ff; color: var(--accent-dark); }
+  .person-dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+  .entry-owner { padding: 8px 0 2px; }
+  .entry-owner select { font-size: .85rem; padding: 9px 10px; }
 
   .entry {
     background: var(--card);
@@ -392,7 +415,9 @@
     <button class="tab active" data-view="receipts">Belege</button>
     <button class="tab" data-view="categories">Kategorien</button>
     <button class="tab" data-view="shops">Läden</button>
+    <button class="tab" data-view="persons">Personen</button>
   </nav>
+  <div class="people" id="people" hidden></div>
   <section id="book"></section>
 </main>
 
@@ -456,6 +481,8 @@
   let saveTimer = null;
   let pollTimer = null;
   let currentView = "receipts";
+  let people = [];
+  let activePersonId = "";
 
   function parseToken() {
     const segs = decodeURIComponent(location.pathname).replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
@@ -536,6 +563,8 @@
             const data = await r.json();
             knownRev = data.rev || 0;
             book = normalizeBook(data.book);
+            await loadPeople();
+            renderPeople();
             renderBook();
             pollTimer = setInterval(pullRemote, 12000);
             return;
@@ -543,6 +572,8 @@
         } catch (e) {}
       }
     }
+    await loadPeople();
+    renderPeople();
     book = loadLocal();
     renderBook();
   }
@@ -661,6 +692,7 @@
       if (!parsed || (!parsed.items.length && !parsed.total && !parsed.merchant)) {
         showToast("Keine Einträge erkannt");
       } else {
+        parsed.personId = activePersonId || "";
         book.receipts.push(parsed);
         save();
         renderBook();
@@ -680,6 +712,50 @@
     renderBook();
   }
 
+  function personById(id) {
+    for (let i = 0; i < people.length; i++) { if (people[i].id === id) return people[i]; }
+    return null;
+  }
+
+  function personName(id) {
+    const p = personById(id);
+    return p ? (p.name || "Person") : "";
+  }
+
+  async function loadPeople() {
+    if (!serverMode || !token) return;
+    try {
+      const r = await fetch("/api/state/" + encodeURIComponent(token));
+      if (!r.ok) return;
+      const d = await r.json();
+      if (d && d.state && Array.isArray(d.state.people)) people = d.state.people;
+    } catch (e) {}
+    if (people.length) {
+      const saved = localStorage.getItem("haushaltsgame.budget.person");
+      activePersonId = personById(saved) ? saved : people[0].id;
+    }
+  }
+
+  function renderPeople() {
+    const box = $("people");
+    box.innerHTML = "";
+    if (!people.length) { box.hidden = true; return; }
+    box.hidden = false;
+    people.forEach(function (p) {
+      const b = el("button", "person-chip" + (p.id === activePersonId ? " active" : ""));
+      const dot = el("span", "person-dot");
+      dot.style.background = p.color || "#9ca3af";
+      b.appendChild(dot);
+      b.appendChild(document.createTextNode(p.name || "Person"));
+      b.addEventListener("click", function () {
+        activePersonId = p.id;
+        try { localStorage.setItem("haushaltsgame.budget.person", p.id); } catch (e) {}
+        renderPeople();
+      });
+      box.appendChild(b);
+    });
+  }
+
   function renderBook() {
     const box = $("book");
     box.innerHTML = "";
@@ -693,6 +769,7 @@
 
     if (currentView === "categories") { renderCategories(box); return; }
     if (currentView === "shops") { renderShops(box); return; }
+    if (currentView === "persons") { renderPersons(box); return; }
     renderReceipts(box, receipts);
   }
 
@@ -705,6 +782,7 @@
       main.appendChild(el("div", "entry-merchant", r.merchant || "Unbekannter Laden"));
       const n = r.items.length;
       const metaParts = [];
+      if (r.personId && personName(r.personId)) metaParts.push(personName(r.personId));
       if (r.date) metaParts.push(fmtDate(r.date));
       if (n) metaParts.push(n + (n === 1 ? " Position" : " Positionen"));
       main.appendChild(el("div", "entry-meta", metaParts.join(" · ") || "Kein Datum"));
@@ -723,12 +801,29 @@
         row.appendChild(el("span", "price", fmt(it.price, r.currency)));
         items.appendChild(row);
       });
+      if (people.length) {
+        const ownerWrap = el("div", "entry-owner");
+        const sel = el("select");
+        const opt0 = el("option", null, "Niemand zugeordnet");
+        opt0.value = "";
+        sel.appendChild(opt0);
+        people.forEach(function (p) {
+          const o = el("option", null, p.name || "Person");
+          o.value = p.id;
+          sel.appendChild(o);
+        });
+        sel.value = r.personId || "";
+        sel.addEventListener("change", function () { r.personId = sel.value; save(); renderBook(); });
+        sel.addEventListener("click", function (e) { e.stopPropagation(); });
+        ownerWrap.appendChild(sel);
+        items.appendChild(ownerWrap);
+      }
       const del = el("button", "entry-del", "Löschen");
       del.addEventListener("click", function (e) { e.stopPropagation(); deleteReceipt(r.id); });
       items.appendChild(del);
       card.appendChild(items);
 
-      if (r.items.length) {
+      if (r.items.length || people.length) {
         head.addEventListener("click", function () { card.classList.toggle("open"); });
       }
       box.appendChild(card);
@@ -737,11 +832,19 @@
     if (!receipts.length) box.appendChild(el("div", "empty", "Noch keine Einträge.\nTippe auf die Kamera unten rechts, um einen Beleg zu scannen."));
   }
 
-  function groupCard(box, title, meta, total, lines) {
+  function groupCard(box, title, meta, total, lines, color) {
     const card = el("div", "entry");
     const head = el("div", "entry-head");
     const main = el("div", "entry-main");
-    main.appendChild(el("div", "entry-merchant", title));
+    const titleRow = el("div", "entry-merchant");
+    if (color) {
+      const dot = el("span", "person-dot");
+      dot.style.background = color;
+      dot.style.marginRight = "6px";
+      titleRow.appendChild(dot);
+    }
+    titleRow.appendChild(document.createTextNode(title));
+    main.appendChild(titleRow);
     main.appendChild(el("div", "entry-meta", meta));
     head.appendChild(main);
     head.appendChild(el("div", "entry-amount", fmt(total, "EUR")));
@@ -800,14 +903,38 @@
     });
   }
 
-  function exportCsv() {
-    const rows = [["Laden", "Datum", "Artikel", "Kategorie", "Menge", "Preis", "Waehrung", "Belegsumme"]];
+  function renderPersons(box) {
+    const map = {};
     book.receipts.forEach(function (r) {
+      const p = personById(r.personId);
+      const key = p ? p.id : "";
+      const g = map[key] || (map[key] = {
+        name: p ? (p.name || "Person") : "Ohne Zuordnung",
+        color: p ? (p.color || "#9ca3af") : "#cbd5e1",
+        total: 0, count: 0, lines: []
+      });
+      g.total += Number(r.total) || 0;
+      g.count += 1;
+      g.lines.push({ name: (r.merchant || "Laden") + (r.date ? " · " + fmtDate(r.date) : ""), price: Number(r.total) || 0 });
+    });
+    const keys = Object.keys(map).sort(function (a, b) { return map[b].total - map[a].total; });
+    if (!keys.length) { box.appendChild(el("div", "empty", "Noch keine Einträge.")); return; }
+    keys.forEach(function (k) {
+      const g = map[k];
+      g.lines.sort(function (a, b) { return b.price - a.price; });
+      groupCard(box, g.name, g.count + (g.count === 1 ? " Beleg" : " Belege"), g.total, g.lines, g.color);
+    });
+  }
+
+  function exportCsv() {
+    const rows = [["Person", "Laden", "Datum", "Artikel", "Kategorie", "Menge", "Preis", "Waehrung", "Belegsumme"]];
+    book.receipts.forEach(function (r) {
+      const person = personName(r.personId);
       if (!r.items.length) {
-        rows.push([r.merchant, r.date, "", "", "", "", r.currency, r.total]);
+        rows.push([person, r.merchant, r.date, "", "", "", "", r.currency, r.total]);
       } else {
         r.items.forEach(function (it) {
-          rows.push([r.merchant, r.date, it.name, it.category || "", it.qty, it.price, r.currency, r.total]);
+          rows.push([person, r.merchant, r.date, it.name, it.category || "", it.qty, it.price, r.currency, r.total]);
         });
       }
     });
@@ -857,7 +984,10 @@
   });
 
   document.addEventListener("visibilitychange", function () {
-    if (!document.hidden) pullRemote();
+    if (!document.hidden) {
+      loadPeople().then(function () { renderPeople(); renderBook(); });
+      pullRemote();
+    }
   });
 
   window.addEventListener("pagehide", function () { if (pendingSave) putRemote(); });

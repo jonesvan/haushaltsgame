@@ -131,8 +131,9 @@
     border: 0;
     background: var(--accent);
     color: #fff;
-    font-size: 1.9rem;
-    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     cursor: pointer;
     box-shadow: 0 8px 24px rgba(59,130,246,.4);
     z-index: 30;
@@ -205,7 +206,6 @@
   textarea { resize: vertical; min-height: 80px; }
 
   .row-inline { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
-  #modelPreset { margin-bottom: 8px; }
   .row-inline .grow { flex: 1; min-width: 0; }
   .toggles { display: flex; gap: 16px; flex-wrap: wrap; margin: 4px 0 12px; }
   .chk { display: inline-flex; align-items: center; gap: 8px; font-size: .85rem; color: #374151; font-weight: 600; }
@@ -335,15 +335,7 @@
   <section id="book"></section>
 </main>
 
-<button class="fab" id="add" aria-label="Beleg hinzufügen">+</button>
-
-<div class="sheet-backdrop" id="actionSheet">
-  <div class="sheet">
-    <div class="sheet-grip"></div>
-    <button class="sheet-item" id="scanAction"><span class="ico">📷</span> Beleg scannen</button>
-    <button class="sheet-item" id="manualAction"><span class="ico">✏️</span> Manuell eintragen</button>
-  </div>
-</div>
+<button class="fab" id="add" aria-label="Beleg fotografieren"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.2a1 1 0 0 0 .83-.45l.94-1.41A1 1 0 0 1 10.3 3.68h3.4a1 1 0 0 1 .83.46l.94 1.41A1 1 0 0 0 16.3 6h1.2A2.5 2.5 0 0 1 20 8.5v8A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="12.3" r="3.2" stroke="currentColor" stroke-width="1.8"/></svg></button>
 
 <div class="sheet-backdrop" id="scanSheet">
   <div class="sheet">
@@ -361,20 +353,16 @@
           <div>Foto aufnehmen oder wählen</div>
         </div>
       </div>
-      <input id="file" type="file" accept="image/*" hidden>
+      <input id="file" type="file" accept="image/*" capture="environment" hidden>
 
       <details class="more">
         <summary>Kassenbon-Text einfügen</summary>
         <textarea id="ocrText" placeholder="Text hier einfügen…"></textarea>
       </details>
 
-      <div class="notice" id="modelNotice" hidden>
-        <span>Modell nicht geladen.</span>
-        <button class="link" id="openSettings">Jetzt laden</button>
-      </div>
-
       <button class="btn primary block" id="scan" disabled>Scannen</button>
       <div class="scan-status" id="scanStatus" hidden></div>
+      <button class="link" id="manualAction" style="margin-top:14px">Manuell eintragen</button>
     </div>
 
     <div id="review" hidden></div>
@@ -389,31 +377,9 @@
       <button class="icon-btn ghost" id="settingsClose" aria-label="Schließen">✕</button>
     </div>
 
-    <label class="field-label">Modell</label>
-    <select id="modelPreset">
-      <option value="https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it-web.task">Gemma 4 E2B · ~2 GB · empfohlen</option>
-      <option value="https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it-web.task">Gemma 4 E4B · ~3 GB</option>
-      <option value="https://huggingface.co/google/gemma-3n-E2B-it-litert-lm/resolve/main/gemma-3n-E2B-it-int4-Web.litertlm">Gemma 3n E2B · Fallback (HF-Lizenz nötig)</option>
-      <option value="">Eigene URL…</option>
-    </select>
-    <div class="row-inline">
-      <input id="modelUrl" class="grow" type="url" placeholder="https://…/model.task">
-      <button class="btn" id="loadModel">Laden</button>
-    </div>
-    <div class="row-inline">
-      <input id="modelFile" class="grow" type="file" accept=".task,.bin,.litertlm">
-    </div>
     <div class="toggles">
-      <label class="chk" id="serverScanRow" hidden><input type="checkbox" id="serverScan" checked> Auf Server scannen (empfohlen)</label>
-      <label class="chk"><input type="checkbox" id="vision" checked> Bild senden</label>
-      <label class="chk"><input type="checkbox" id="useGpu" checked> WebGPU</label>
+      <label class="chk"><input type="checkbox" id="vision" checked> Bild mitsenden</label>
     </div>
-    <div class="progress" id="modelProgress" hidden>
-      <div class="progress-track"><div class="progress-bar" id="modelProgressBar"></div></div>
-      <span class="progress-text" id="modelProgressText"></span>
-    </div>
-    <p class="hint" id="modelStatus">Empfohlen: Gemma&nbsp;4 E2B (.task, ~2&nbsp;GB). Wird einmalig heruntergeladen, im Gerät gespeichert und läuft komplett im Browser. Benötigt WebGPU (iOS&nbsp;26+ / Safari&nbsp;26+) und viel Arbeitsspeicher.</p>
-    <button class="link" id="clearModel" style="margin-top:12px" hidden>Modell-Cache löschen</button>
 
     <div class="settings-actions">
       <button class="btn" id="share">Link teilen</button>
@@ -427,12 +393,6 @@
 <script type="module">
 (function () {
   const BOOK_KEY = "haushaltsgame.budget.v1";
-  const MODEL_KEY = "haushaltsgame.budget.model";
-  const SCAN_KEY = "haushaltsgame.budget.serverscan";
-  const CACHE_FLAG_PREFIX = "haushaltsgame.budget.modelcache.";
-  const LOAD_FLAG = "haushaltsgame.budget.loading";
-  const DEFAULT_MODEL = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it-web.task";
-  const GENAI_CDN = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-genai@0.10.29";
   const TOKEN_RE = /^[A-Za-z0-9_-]{6,40}$/;
 
   const $ = function (id) { return document.getElementById(id); };
@@ -452,9 +412,7 @@
   let saveTimer = null;
   let pollTimer = null;
 
-  let llm = null;
   let selectedImage = null;
-  let serverScanEnabled = false;
 
   function parseToken() {
     const segs = decodeURIComponent(location.pathname).replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
@@ -518,28 +476,6 @@
   }
 
   async function boot() {
-    let savedUrl = localStorage.getItem(MODEL_KEY) || DEFAULT_MODEL;
-    if (/gemma-4-(E2B|E4B)-it-web\.litertlm$/i.test(savedUrl)) {
-      savedUrl = savedUrl.replace(/\.litertlm$/i, ".task");
-      try { localStorage.setItem(MODEL_KEY, savedUrl); } catch (e) {}
-    }
-    $("modelUrl").value = savedUrl;
-    syncPreset();
-    if (serverMode) {
-      const savedScan = localStorage.getItem(SCAN_KEY);
-      $("serverScan").checked = savedScan === null ? true : savedScan === "1";
-      $("serverScanRow").hidden = false;
-    }
-    serverScanEnabled = serverMode && $("serverScan").checked;
-    if (localStorage.getItem(CACHE_FLAG_PREFIX + modelKey(savedUrl))) showClearModel(true);
-    try {
-      const t = Number(sessionStorage.getItem(LOAD_FLAG)) || 0;
-      sessionStorage.removeItem(LOAD_FLAG);
-      if (t && Date.now() - t < 180000) {
-        setStatus("Das letzte Modellladen hat den Browser überlastet (zu wenig Arbeitsspeicher). Bitte ein kleineres Modell wählen (Gemma 4 E2B).", "error");
-        showToast("Zu wenig Speicher – kleineres Modell wählen");
-      }
-    } catch (e) {}
     token = parseToken();
     $("back").href = token ? "/" + token : "/";
 
@@ -613,52 +549,12 @@
     return s;
   }
 
-  function humanBytes(n) {
-    if (n >= 1073741824) return (n / 1073741824).toFixed(2) + " GB";
-    if (n >= 1048576) return Math.round(n / 1048576) + " MB";
-    if (n >= 1024) return Math.round(n / 1024) + " KB";
-    return n + " B";
-  }
-
-  function humanTime(sec) {
-    if (!isFinite(sec) || sec <= 0) return "";
-    sec = Math.round(sec);
-    const m = Math.floor(sec / 60), s = sec % 60;
-    return (m > 0 ? m + " min " : "") + s + " s";
-  }
-
   function pick(obj, keys) {
     for (let i = 0; i < keys.length; i++) {
       const k = keys[i];
       if (obj && obj[k] !== undefined && obj[k] !== null && obj[k] !== "") return obj[k];
     }
     return undefined;
-  }
-
-  function extractJson(text) {
-    if (!text) return null;
-    const src = text.replace(/```[a-zA-Z]*/g, "```");
-    const start = src.indexOf("{");
-    if (start < 0) return null;
-    let depth = 0, inStr = false, esc = false, end = -1;
-    for (let i = start; i < src.length; i++) {
-      const c = src[i];
-      if (inStr) {
-        if (esc) esc = false;
-        else if (c === "\\") esc = true;
-        else if (c === '"') inStr = false;
-      } else if (c === '"') inStr = true;
-      else if (c === "{") depth++;
-      else if (c === "}") { depth--; if (depth === 0) { end = i; break; } }
-    }
-    let json = src.slice(start, end < 0 ? src.length : end + 1);
-    try { return JSON.parse(json); } catch (e) {}
-    const repaired = json
-      .replace(/,\s*([}\]])/g, "$1")
-      .replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:/g, '$1"$2":')
-      .replace(/'/g, '"');
-    try { return JSON.parse(repaired); } catch (e) {}
-    return null;
   }
 
   function normalizeReceipt(obj) {
@@ -692,270 +588,6 @@
     };
   }
 
-  function buildPrompt() {
-    return "Du bist ein Kassenzettel-Scanner. Lies den Kassenbon und antworte AUSSCHLIESSLICH mit " +
-      "einem JSON-Objekt, ohne Erklaerung und ohne Markdown-Codeblock. Format:\n" +
-      '{"merchant":"Ladenname","date":"YYYY-MM-DD","currency":"EUR","total":12.34,' +
-      '"items":[{"name":"Artikel","qty":1,"price":1.23}]}\n' +
-      "Regeln: price ist der Gesamtpreis der Position. Sind Einzelpreis und Menge gegeben, " +
-      "multipliziere sie. Fehlt total, summiere die Positionen. Gib alle Positionen aus.";
-  }
-
-  function setStatus(msg, cls) {
-    const n = $("modelStatus");
-    n.textContent = msg;
-    n.className = "hint" + (cls ? " " + cls : "");
-  }
-
-  function setProgress(frac, text) {
-    const wrap = $("modelProgress");
-    const bar = $("modelProgressBar");
-    const label = $("modelProgressText");
-    wrap.hidden = false;
-    label.textContent = text || "";
-    if (frac == null) {
-      wrap.classList.add("indeterminate");
-      bar.style.width = "40%";
-    } else {
-      wrap.classList.remove("indeterminate");
-      bar.style.width = Math.max(0, Math.min(100, frac * 100)).toFixed(1) + "%";
-    }
-  }
-
-  function hideProgress() {
-    $("modelProgress").hidden = true;
-  }
-
-  function opfsSupported() {
-    return !!(navigator.storage && navigator.storage.getDirectory);
-  }
-
-  function modelKey(url) {
-    let h = 5381;
-    for (let i = 0; i < url.length; i++) h = ((h << 5) + h + url.charCodeAt(i)) >>> 0;
-    const tail = url.split("/").pop().replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 60);
-    return h.toString(36) + "-" + tail;
-  }
-
-  function syncPreset() {
-    const url = ($("modelUrl").value || "").trim();
-    const opts = $("modelPreset").options;
-    let match = "";
-    for (let i = 0; i < opts.length; i++) {
-      if (opts[i].value && opts[i].value === url) { match = opts[i].value; break; }
-    }
-    $("modelPreset").value = match;
-  }
-
-  function progressReport(received, total, eta, cached) {
-    const pct = total ? Math.min(1, received / total) : null;
-    let text;
-    if (cached) {
-      text = "Aus Gerätespeicher (" + humanBytes(received) + ")";
-    } else if (total) {
-      text = Math.round(pct * 100) + " % · " + humanBytes(received) + " / " + humanBytes(total);
-      if (eta) text += " · noch ca. " + humanTime(eta);
-    } else {
-      text = humanBytes(received);
-    }
-    setProgress(cached ? 1 : pct, text);
-  }
-
-  function progressReader(res, onProgress) {
-    const total = Number(res.headers.get("Content-Length")) || 0;
-    const reader = res.body.getReader();
-    let received = 0;
-    const start = performance.now();
-    return new ReadableStream({
-      async pull(controller) {
-        try {
-          const step = await reader.read();
-          if (step.done) { controller.close(); return; }
-          received += step.value.length;
-          const elapsed = (performance.now() - start) / 1000;
-          const speed = elapsed > 0 ? received / elapsed : 0;
-          const eta = speed > 0 && total ? (total - received) / speed : 0;
-          onProgress(received, total, eta, false);
-          controller.enqueue(step.value);
-        } catch (e) {
-          controller.error(e);
-        }
-      },
-      cancel(reason) { reader.cancel(reason); }
-    });
-  }
-
-  async function ensureDownloaded(url, handle, onProgress) {
-    const flagKey = CACHE_FLAG_PREFIX + modelKey(url);
-    let existing = 0;
-    try { existing = (await handle.getFile()).size; } catch (e) { existing = 0; }
-    const doneSize = Number(localStorage.getItem(flagKey)) || 0;
-    if (doneSize && existing === doneSize) {
-      onProgress(existing, existing, 0, true);
-      return;
-    }
-
-    let res = null;
-    if (existing > 0) {
-      res = await fetch(url, { headers: { Range: "bytes=" + existing + "-" } });
-      if (res.status === 416) {
-        localStorage.setItem(flagKey, String(existing));
-        onProgress(existing, existing, 0, true);
-        return;
-      }
-      if (res.status !== 206) {
-        if (res.body) { try { res.body.cancel(); } catch (e) {} }
-        existing = 0;
-        res = null;
-      }
-    }
-    if (!res) res = await fetch(url);
-    if (!res.ok) throw new Error("HTTP " + res.status);
-
-    const remaining = Number(res.headers.get("Content-Length")) || 0;
-    const total = existing + remaining;
-    const writable = await handle.createWritable(existing > 0 ? { keepExistingData: true } : undefined);
-    const reader = res.body.getReader();
-    let received = existing;
-    const start = performance.now();
-    try {
-      for (;;) {
-        const step = await reader.read();
-        if (step.done) break;
-        await writable.write({ type: "write", position: received, data: step.value });
-        received += step.value.length;
-        const elapsed = (performance.now() - start) / 1000;
-        const speed = elapsed > 0 ? (received - existing) / elapsed : 0;
-        const eta = speed > 0 && total ? (total - received) / speed : 0;
-        onProgress(received, total, eta, false);
-      }
-    } finally {
-      await writable.close();
-    }
-    if (total && received < total) {
-      throw new Error("Download unvollständig (" + humanBytes(received) + " / " + humanBytes(total) + ")");
-    }
-    localStorage.setItem(flagKey, String(received));
-    onProgress(received, total || received, 0, true);
-  }
-
-  async function modelReader(url) {
-    if (opfsSupported()) {
-      let handle = null;
-      try {
-        if (navigator.storage.persist) { try { await navigator.storage.persist(); } catch (e) {} }
-        const root = await navigator.storage.getDirectory();
-        const dir = await root.getDirectoryHandle("models", { create: true });
-        handle = await dir.getFileHandle(modelKey(url), { create: true });
-      } catch (e) {
-        handle = null;
-      }
-      if (handle) {
-        await ensureDownloaded(url, handle, progressReport);
-        const file = await handle.getFile();
-        if (!file.size) throw new Error("Leere Datei");
-        showClearModel(true);
-        return file.stream().getReader();
-      }
-      showToast("Lade ohne Fortsetzen…");
-    }
-    const res = await fetch(url);
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    if (!res.body || !res.body.getReader) {
-      const buf = new Uint8Array(await res.arrayBuffer());
-      progressReport(buf.length, buf.length, 0, true);
-      return new Blob([buf]).stream().getReader();
-    }
-    return progressReader(res, progressReport).getReader();
-  }
-
-  function showClearModel(show) {
-    const btn = $("clearModel");
-    if (btn) btn.hidden = !show;
-  }
-
-  async function clearModelCache() {
-    try {
-      const root = await navigator.storage.getDirectory();
-      const dir = await root.getDirectoryHandle("models", { create: true });
-      const names = [];
-      for await (const name of dir.keys()) names.push(name);
-      for (const name of names) await dir.removeEntry(name);
-    } catch (e) {}
-    Object.keys(localStorage).forEach(function (k) {
-      if (k.indexOf(CACHE_FLAG_PREFIX) === 0) localStorage.removeItem(k);
-    });
-    showClearModel(false);
-    showToast("Modell-Cache gelöscht");
-  }
-
-  function updateModelNotice() {
-    const notice = $("modelNotice");
-    if (notice) notice.hidden = serverScanEnabled || !!llm;
-  }
-
-  async function loadModel() {
-    const url = $("modelUrl").value.trim();
-    const localFile = $("modelFile").files && $("modelFile").files[0];
-    const useGpu = $("useGpu").checked;
-    const vision = $("vision").checked;
-    if (!url && !localFile) { setStatus("Bitte Modell-URL angeben oder Datei wählen.", "error"); return; }
-
-    if (useGpu && !navigator.gpu) {
-      setStatus("WebGPU ist auf diesem Gerät nicht verfügbar. iOS benötigt iOS 26+ / Safari 26+ mit aktiviertem WebGPU. Alternativ „WebGPU“ deaktivieren.", "error");
-      return;
-    }
-
-    $("loadModel").disabled = true;
-    try {
-      setStatus("Lade MediaPipe Runtime…", "");
-      setProgress(null, "MediaPipe wird geladen…");
-      const mod = await import(GENAI_CDN + "/genai_bundle.mjs");
-      const fileset = await mod.FilesetResolver.forGenAiTasks(GENAI_CDN + "/wasm");
-
-      const baseOptions = { delegate: useGpu ? "GPU" : "CPU" };
-      if (localFile) {
-        setStatus("Lade lokale Modelldatei…", "");
-        setProgress(null, humanBytes(localFile.size) + " (lokal)");
-        baseOptions.modelAssetBuffer = localFile.stream().getReader();
-      } else {
-        setProgress(0, "0 %");
-        baseOptions.modelAssetBuffer = await modelReader(url);
-        setProgress(1, "Heruntergeladen · wird initialisiert…");
-      }
-      setStatus("Initialisiere Modell…", "");
-      try { sessionStorage.setItem(LOAD_FLAG, String(Date.now())); } catch (e) {}
-
-      const options = {
-        baseOptions: baseOptions,
-        maxTokens: 1024,
-        topK: 1,
-        temperature: 0,
-        randomSeed: 0
-      };
-      if (vision) options.maxNumImages = 1;
-
-      llm = await mod.LlmInference.createFromOptions(fileset, options);
-      try { sessionStorage.removeItem(LOAD_FLAG); } catch (e) {}
-      if (!localFile) localStorage.setItem(MODEL_KEY, url);
-      setStatus("Modell bereit ✓ " + (localFile ? localFile.name : url.split("/").pop()), "ok");
-      setProgress(1, "Modell bereit ✓");
-      updateModelNotice();
-      updateScanButton();
-      showToast("Modell geladen");
-    } catch (e) {
-      try { sessionStorage.removeItem(LOAD_FLAG); } catch (e2) {}
-      const msg = e && e.message ? e.message : String(e);
-      if (/HTTP (401|403)/.test(msg)) {
-        setStatus("Zugriff verweigert (401/403). Dieses Modell ist auf HuggingFace gesperrt und benötigt eine Lizenz/einen Token. Bitte Gemma 4 wählen.", "error");
-      } else {
-        setStatus("Modell konnte nicht geladen werden: " + msg, "error");
-      }
-      hideProgress();
-    }
-    $("loadModel").disabled = false;
-  }
-
   async function handleImage(file) {
     if (!file) return;
     try {
@@ -981,7 +613,7 @@
 
   function updateScanButton() {
     const hasInput = !!selectedImage || !!$("ocrText").value.trim();
-    $("scan").disabled = !((serverScanEnabled || llm) && hasInput);
+    $("scan").disabled = !hasInput;
   }
 
   async function scanOnServer(image, text) {
@@ -996,24 +628,10 @@
     return normalizeReceipt(j.receipt);
   }
 
-  async function scanOnDevice(image, text, status) {
-    const g4 = /gemma-?4/i.test($("modelUrl").value || "");
-    const parts = [g4 ? "<|turn>user\n" : "<start_of_turn>user\n"];
-    if (image) parts.push({ imageSource: image });
-    if (text) parts.push("Kassenbon-Text:\n" + text + "\n\n");
-    parts.push(buildPrompt());
-    parts.push(g4 ? "<turn|>\n<|turn>model\n" : "<end_of_turn>\n<start_of_turn>model\n");
-    const result = await llm.generateResponse(parts, function () {
-      status.textContent = "Scanne…";
-    });
-    return normalizeReceipt(extractJson(result));
-  }
-
   async function scan() {
-    const vision = $("vision").checked;
     const text = $("ocrText").value.trim();
-    const useImage = vision ? selectedImage : null;
-    if (!((serverScanEnabled || llm) && (useImage || text))) return;
+    const image = selectedImage && $("vision").checked ? selectedImage.toDataURL("image/jpeg", 0.85) : "";
+    if (!image && !text) return;
 
     const status = $("scanStatus");
     status.hidden = false;
@@ -1022,13 +640,7 @@
     $("scan").textContent = "Scanne…";
 
     try {
-      let parsed;
-      if (serverScanEnabled) {
-        const image = useImage ? selectedImage.toDataURL("image/jpeg", 0.85) : "";
-        parsed = await scanOnServer(image, text);
-      } else {
-        parsed = await scanOnDevice(useImage, text, status);
-      }
+      const parsed = await scanOnServer(image, text);
       status.hidden = true;
       if (!parsed || (!parsed.items.length && !parsed.total && !parsed.merchant)) {
         showToast("Keine Einträge erkannt");
@@ -1209,7 +821,7 @@
       box.appendChild(card);
     });
 
-    if (!receipts.length) box.appendChild(el("div", "empty", "Noch keine Einträge.\nTippe auf +, um einen Beleg zu scannen."));
+    if (!receipts.length) box.appendChild(el("div", "empty", "Noch keine Einträge.\nTippe auf die Kamera unten rechts, um einen Beleg zu scannen."));
     $("grandTotal").textContent = fmt(grand, "EUR");
     $("receiptCount").textContent = receipts.length
       ? receipts.length + (receipts.length === 1 ? " Beleg" : " Belege")
@@ -1224,7 +836,6 @@
     $("scanInput").hidden = false;
     $("review").hidden = true;
     $("scanTitle").textContent = "Beleg scannen";
-    updateModelNotice();
     updateScanButton();
     openSheet("scanSheet");
   }
@@ -1285,46 +896,28 @@
     }
   }
 
-  $("add").addEventListener("click", function () { openSheet("actionSheet"); });
-  $("scanAction").addEventListener("click", function () {
-    closeSheet("actionSheet");
-    setTimeout(openScanFlow, 180);
+  $("add").addEventListener("click", function () {
+    openScanFlow();
+    $("file").click();
   });
-  $("manualAction").addEventListener("click", function () {
-    closeSheet("actionSheet");
-    setTimeout(manualAdd, 180);
-  });
+  $("manualAction").addEventListener("click", manualAdd);
   $("settings").addEventListener("click", function () { openSheet("settingsSheet"); });
-  $("openSettings").addEventListener("click", function () {
-    closeSheet("scanSheet");
-    setTimeout(function () { openSheet("settingsSheet"); }, 180);
-  });
   $("scanClose").addEventListener("click", closeScanSheet);
   $("settingsClose").addEventListener("click", function () { closeSheet("settingsSheet"); });
 
-  ["actionSheet", "scanSheet", "settingsSheet"].forEach(function (id) {
+  ["scanSheet", "settingsSheet"].forEach(function (id) {
     const b = $(id);
     b.addEventListener("click", function (e) { if (e.target === b) closeSheet(id); });
   });
 
-  $("modelPreset").addEventListener("change", function () {
-    if (this.value) $("modelUrl").value = this.value;
-    else $("modelUrl").focus();
-  });
-  $("modelUrl").addEventListener("input", syncPreset);
-  $("loadModel").addEventListener("click", loadModel);
-  $("clearModel").addEventListener("click", clearModelCache);
   $("scan").addEventListener("click", scan);
   $("share").addEventListener("click", share);
   $("exportCsv").addEventListener("click", exportCsv);
   $("ocrText").addEventListener("input", updateScanButton);
-  $("serverScan").addEventListener("change", function () {
-    serverScanEnabled = serverMode && this.checked;
-    try { localStorage.setItem(SCAN_KEY, this.checked ? "1" : "0"); } catch (e) {}
-    updateModelNotice();
-    updateScanButton();
+  $("file").addEventListener("change", function () {
+    const f = $("file").files && $("file").files[0];
+    if (f) { openScanFlow(); handleImage(f); }
   });
-  $("file").addEventListener("change", function () { handleImage($("file").files && $("file").files[0]); });
 
   const drop = $("drop");
   drop.addEventListener("click", function () { $("file").click(); });

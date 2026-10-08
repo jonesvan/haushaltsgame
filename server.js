@@ -24,6 +24,26 @@ function parseReceiptText(content) {
   return null;
 }
 
+function reconcileReceipt(r) {
+  if (!r || !Array.isArray(r.items) || !r.items.length) return r;
+  const items = r.items;
+  const lineSum = round2(items.reduce(function (s, it) { return s + (Number(it && it.price) || 0); }, 0));
+  const unitSum = round2(items.reduce(function (s, it) { return s + (Number(it && it.price) || 0) * (Number(it && it.qty) || 1); }, 0));
+  const total = round2(r.total);
+  if (total > 0) {
+    const lineOff = Math.abs(lineSum - total);
+    const unitOff = Math.abs(unitSum - total);
+    if (lineOff > 0.02 && unitOff <= 0.02) {
+      items.forEach(function (it) {
+        if (it && typeof it === "object") it.price = round2((Number(it.qty) || 1) * (Number(it.price) || 0));
+      });
+    }
+  } else {
+    r.total = lineSum;
+  }
+  return r;
+}
+
 async function deepseekScan(apiKey, userContent) {
   const controller = new AbortController();
   const timer = setTimeout(function () { controller.abort(); }, 90000);
@@ -81,19 +101,29 @@ function normCategory(v) {
 }
 
 const SCAN_SYSTEM_PROMPT =
-  "Du bist ein Kassenzettel-Scanner. Lies den Kassenbon (Bild und/oder Text) und " +
-  "antworte AUSSCHLIESSLICH mit einem JSON-Objekt, ohne Erklaerung, ohne Markdown. " +
+  "Du bist ein sehr genauer Kassenzettel-Scanner. Lies den Kassenbon (Bild und/oder Text) " +
+  "und antworte AUSSCHLIESSLICH mit einem JSON-Objekt, ohne Erklaerung, ohne Markdown. " +
   "Format: " +
   '{"merchant":"Ladenname","date":"YYYY-MM-DD","currency":"EUR","total":12.34,' +
   '"items":[{"name":"Artikel","qty":1,"price":1.23,"category":"Lebensmittel"}]} ' +
   "Regeln: " +
-  "price ist der Gesamtpreis der Position. Sind Einzelpreis und Menge gegeben, " +
-  "multipliziere sie. Fehlt total, summiere die Positionen. Gib alle Positionen aus. " +
+  "price ist die gesamte Zeilensumme der Position - der Betrag, der fuer diese Position " +
+  "berechnet wurde. Steht auf dem Bon bereits eine Zeilensumme, uebernimm sie genau. " +
+  "Steht nur 'Menge x Einzelpreis', berechne Menge x Einzelpreis als price. " +
+  "qty ist nur dann groesser als 1, wenn auf dem Bon eindeutig eine Menge steht " +
+  '(z.B. "2 x 1,29", "2 Stk", "3 kg", "0,75 l"). Eine einzelne Zahl am rechten Rand ist ' +
+  "meistens der Mehrwertsteuer-Schluessel (A=19%, B=7%) oder eine Positions-/Artikelnummer " +
+  "und KEINE Menge - multipliziere einen Betrag niemals mit so einer Zahl. " +
   "Korrigiere jeden Artikelnamen: repariere fehlende oder falsche Buchstaben und " +
   "offensichtliche OCR-Fehler, normalisiere Gross-/Kleinschreibung und entferne " +
   "unnuetige Artikelnummern oder Codes, sodass ein lesbarer Produktname entsteht. " +
   "Ordne jedem Artikel GENAU EINE Kategorie aus dieser Liste zu: " +
   CATEGORIES.join(", ") + ". " +
+  "WICHTIG - Gegenprobe: Summiere alle Positionen (qty x price) und vergleiche mit dem " +
+  "gedruckten Gesamtbetrag (Summe/Gesamt/zu zahlen). Beide muessen uebereinstimmen. " +
+  "Wenn sie abweichen, hast du eine Menge oder einen Preis falsch gelesen: pruefe jede " +
+  "Position erneut und korrigiere qty/price, bis die Summe exakt dem Gesamtbetrag " +
+  "entspricht. Der gedruckte Gesamtbetrag hat immer Vorrang. " +
   "Wenn nichts erkannt wird, verwende leere Strings/Arrays und total 0.";
 
 const scanHits = new Map();
@@ -414,6 +444,7 @@ const server = http.createServer(async function (req, res) {
       }
       return;
     }
+    reconcileReceipt(receipt);
     if (Array.isArray(receipt.items)) {
       receipt.items.forEach(function (it) {
         if (it && typeof it === "object") it.category = normCategory(it.category);

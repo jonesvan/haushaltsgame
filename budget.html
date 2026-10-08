@@ -404,7 +404,8 @@
       <div class="progress-track"><div class="progress-bar" id="modelProgressBar"></div></div>
       <span class="progress-text" id="modelProgressText"></span>
     </div>
-    <p class="hint" id="modelStatus">Standard: gemma-4-E4B-it-web.task (~3 GB). Läuft komplett im Browser über WebGPU und wird im Cache gehalten.</p>
+    <p class="hint" id="modelStatus">Standard: gemma-4-E4B-it-web.task (~3 GB). Wird einmalig heruntergeladen, im Gerät gespeichert und läuft komplett im Browser.</p>
+    <button class="link" id="clearModel" style="margin-top:12px" hidden>Modell-Cache löschen</button>
 
     <div class="settings-actions">
       <button class="btn" id="share">Link teilen</button>
@@ -419,6 +420,7 @@
 (function () {
   const BOOK_KEY = "haushaltsgame.budget.v1";
   const MODEL_KEY = "haushaltsgame.budget.model";
+  const CACHE_FLAG_PREFIX = "haushaltsgame.budget.modelcache.";
   const DEFAULT_MODEL = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it-web.task";
   const GENAI_CDN = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-genai@0.10.29";
   const TOKEN_RE = /^[A-Za-z0-9_-]{6,40}$/;
@@ -505,7 +507,9 @@
   }
 
   async function boot() {
-    $("modelUrl").value = localStorage.getItem(MODEL_KEY) || DEFAULT_MODEL;
+    const savedUrl = localStorage.getItem(MODEL_KEY) || DEFAULT_MODEL;
+    $("modelUrl").value = savedUrl;
+    if (localStorage.getItem(CACHE_FLAG_PREFIX + modelKey(savedUrl))) showClearModel(true);
     token = parseToken();
     $("back").href = token ? "/" + token : "/";
 
@@ -692,33 +696,157 @@
     $("modelProgress").hidden = true;
   }
 
-  async function downloadModel(url, onProgress) {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    const total = Number(res.headers.get("Content-Length")) || 0;
-    if (!res.body || !res.body.getReader) {
-      const buf = new Uint8Array(await res.arrayBuffer());
-      onProgress(buf.length, total, 0);
-      return buf;
+  function opfsSupported() {
+    return !!(navigator.storage && navigator.storage.getDirectory);
+  }
+
+  function modelKey(url) {
+    let h = 5381;
+    for (let i = 0; i < url.length; i++) h = ((h << 5) + h + url.charCodeAt(i)) >>> 0;
+    const tail = url.split("/").pop().replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 60);
+    return h.toString(36) + "-" + tail;
+  }
+
+  function progressReport(received, total, eta, cached) {
+    const pct = total ? Math.min(1, received / total) : null;
+    let text;
+    if (cached) {
+      text = "Aus Gerätespeicher (" + humanBytes(received) + ")";
+    } else if (total) {
+      text = Math.round(pct * 100) + " % · " + humanBytes(received) + " / " + humanBytes(total);
+      if (eta) text += " · noch ca. " + humanTime(eta);
+    } else {
+      text = humanBytes(received);
     }
+    setProgress(cached ? 1 : pct, text);
+  }
+
+  function progressReader(res, onProgress) {
+    const total = Number(res.headers.get("Content-Length")) || 0;
     const reader = res.body.getReader();
-    const chunks = [];
     let received = 0;
     const start = performance.now();
-    for (;;) {
-      const step = await reader.read();
-      if (step.done) break;
-      chunks.push(step.value);
-      received += step.value.length;
-      const elapsed = (performance.now() - start) / 1000;
-      const speed = elapsed > 0 ? received / elapsed : 0;
-      const eta = speed > 0 && total ? (total - received) / speed : 0;
-      onProgress(received, total, eta);
+    return new ReadableStream({
+      async pull(controller) {
+        try {
+          const step = await reader.read();
+          if (step.done) { controller.close(); return; }
+          received += step.value.length;
+          const elapsed = (performance.now() - start) / 1000;
+          const speed = elapsed > 0 ? received / elapsed : 0;
+          const eta = speed > 0 && total ? (total - received) / speed : 0;
+          onProgress(received, total, eta, false);
+          controller.enqueue(step.value);
+        } catch (e) {
+          controller.error(e);
+        }
+      },
+      cancel(reason) { reader.cancel(reason); }
+    });
+  }
+
+  async function ensureDownloaded(url, handle, onProgress) {
+    const flagKey = CACHE_FLAG_PREFIX + modelKey(url);
+    let existing = 0;
+    try { existing = (await handle.getFile()).size; } catch (e) { existing = 0; }
+    const doneSize = Number(localStorage.getItem(flagKey)) || 0;
+    if (doneSize && existing === doneSize) {
+      onProgress(existing, existing, 0, true);
+      return;
     }
-    const out = new Uint8Array(received);
-    let pos = 0;
-    for (const c of chunks) { out.set(c, pos); pos += c.length; }
-    return out;
+
+    let res = null;
+    if (existing > 0) {
+      res = await fetch(url, { headers: { Range: "bytes=" + existing + "-" } });
+      if (res.status === 416) {
+        localStorage.setItem(flagKey, String(existing));
+        onProgress(existing, existing, 0, true);
+        return;
+      }
+      if (res.status !== 206) {
+        if (res.body) { try { res.body.cancel(); } catch (e) {} }
+        existing = 0;
+        res = null;
+      }
+    }
+    if (!res) res = await fetch(url);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+
+    const remaining = Number(res.headers.get("Content-Length")) || 0;
+    const total = existing + remaining;
+    const writable = await handle.createWritable(existing > 0 ? { keepExistingData: true } : undefined);
+    const reader = res.body.getReader();
+    let received = existing;
+    const start = performance.now();
+    try {
+      for (;;) {
+        const step = await reader.read();
+        if (step.done) break;
+        await writable.write({ type: "write", position: received, data: step.value });
+        received += step.value.length;
+        const elapsed = (performance.now() - start) / 1000;
+        const speed = elapsed > 0 ? (received - existing) / elapsed : 0;
+        const eta = speed > 0 && total ? (total - received) / speed : 0;
+        onProgress(received, total, eta, false);
+      }
+    } finally {
+      await writable.close();
+    }
+    if (total && received < total) {
+      throw new Error("Download unvollständig (" + humanBytes(received) + " / " + humanBytes(total) + ")");
+    }
+    localStorage.setItem(flagKey, String(received));
+    onProgress(received, total || received, 0, true);
+  }
+
+  async function modelReader(url) {
+    if (opfsSupported()) {
+      let handle = null;
+      try {
+        if (navigator.storage.persist) { try { await navigator.storage.persist(); } catch (e) {} }
+        const root = await navigator.storage.getDirectory();
+        const dir = await root.getDirectoryHandle("models", { create: true });
+        handle = await dir.getFileHandle(modelKey(url), { create: true });
+      } catch (e) {
+        handle = null;
+      }
+      if (handle) {
+        await ensureDownloaded(url, handle, progressReport);
+        const file = await handle.getFile();
+        if (!file.size) throw new Error("Leere Datei");
+        showClearModel(true);
+        return file.stream().getReader();
+      }
+      showToast("Lade ohne Fortsetzen…");
+    }
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    if (!res.body || !res.body.getReader) {
+      const buf = new Uint8Array(await res.arrayBuffer());
+      progressReport(buf.length, buf.length, 0, true);
+      return new Blob([buf]).stream().getReader();
+    }
+    return progressReader(res, progressReport).getReader();
+  }
+
+  function showClearModel(show) {
+    const btn = $("clearModel");
+    if (btn) btn.hidden = !show;
+  }
+
+  async function clearModelCache() {
+    try {
+      const root = await navigator.storage.getDirectory();
+      const dir = await root.getDirectoryHandle("models", { create: true });
+      const names = [];
+      for await (const name of dir.keys()) names.push(name);
+      for (const name of names) await dir.removeEntry(name);
+    } catch (e) {}
+    Object.keys(localStorage).forEach(function (k) {
+      if (k.indexOf(CACHE_FLAG_PREFIX) === 0) localStorage.removeItem(k);
+    });
+    showClearModel(false);
+    showToast("Modell-Cache gelöscht");
   }
 
   function updateModelNotice() {
@@ -732,6 +860,11 @@
     const useGpu = $("useGpu").checked;
     const vision = $("vision").checked;
     if (!url && !localFile) { setStatus("Bitte Modell-URL angeben oder Datei wählen.", "error"); return; }
+
+    if (useGpu && !navigator.gpu) {
+      setStatus("WebGPU ist auf diesem Gerät nicht verfügbar. iOS benötigt mindestens iOS 18 / Safari 18. Alternativ „WebGPU“ deaktivieren.", "error");
+      return;
+    }
 
     $("loadModel").disabled = true;
     try {
@@ -747,15 +880,7 @@
         baseOptions.modelAssetBuffer = localFile.stream().getReader();
       } else {
         setProgress(0, "0 %");
-        const data = await downloadModel(url, function (received, total, eta) {
-          const pct = total ? Math.min(1, received / total) : null;
-          let text = total
-            ? Math.round(pct * 100) + " % · " + humanBytes(received) + " / " + humanBytes(total)
-            : humanBytes(received);
-          if (eta) text += " · noch ca. " + humanTime(eta);
-          setProgress(pct, text);
-        });
-        baseOptions.modelAssetBuffer = data;
+        baseOptions.modelAssetBuffer = await modelReader(url);
         setProgress(1, "Heruntergeladen · wird initialisiert…");
       }
       setStatus("Initialisiere Modell…", "");
@@ -1109,6 +1234,7 @@
   });
 
   $("loadModel").addEventListener("click", loadModel);
+  $("clearModel").addEventListener("click", clearModelCache);
   $("scan").addEventListener("click", scan);
   $("share").addEventListener("click", share);
   $("exportCsv").addEventListener("click", exportCsv);

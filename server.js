@@ -14,6 +14,57 @@ const TOKEN_RE = /^[A-Za-z0-9_-]{6,40}$/;
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
 const DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-flash";
+const MAX_OUTPUT_TOKENS = Number(process.env.DEEPSEEK_MAX_TOKENS) || 8192;
+
+function parseReceiptText(content) {
+  if (!content) return null;
+  try { return JSON.parse(content); } catch (e) {}
+  const m = content.match(/\{[\s\S]*\}/);
+  if (m) { try { return JSON.parse(m[0]); } catch (e) {} }
+  return null;
+}
+
+async function deepseekScan(apiKey, userContent) {
+  const controller = new AbortController();
+  const timer = setTimeout(function () { controller.abort(); }, 90000);
+  try {
+    const r = await fetch(DEEPSEEK_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + apiKey
+      },
+      body: JSON.stringify({
+        model: DEEPSEEK_MODEL,
+        messages: [
+          { role: "system", content: SCAN_SYSTEM_PROMPT },
+          { role: "user", content: userContent }
+        ],
+        response_format: { type: "json_object" },
+        thinking: { type: "disabled" },
+        temperature: 0,
+        max_tokens: MAX_OUTPUT_TOKENS
+      }),
+      signal: controller.signal
+    });
+    if (!r.ok) {
+      let detail = "";
+      try {
+        const j = await r.json();
+        detail = j && j.error && j.error.message ? j.error.message : "";
+      } catch (e) {}
+      const err = new Error("DeepSeek-Fehler " + r.status + (detail ? ": " + detail : ""));
+      err.status = r.status;
+      throw err;
+    }
+    const j = await r.json();
+    const msg = j && j.choices && j.choices[0] && j.choices[0].message;
+    return parseReceiptText(msg && msg.content) || parseReceiptText(msg && msg.reasoning_content);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 
 const SCAN_SYSTEM_PROMPT =
   "Du bist ein Kassenzettel-Scanner. Lies den Kassenbon (Bild und/oder Text) und " +
@@ -322,60 +373,27 @@ const server = http.createServer(async function (req, res) {
       userContent.push({ type: "image_url", image_url: { url: url } });
     }
 
-    const controller = new AbortController();
-    const timer = setTimeout(function () { controller.abort(); }, 60000);
-    try {
-      const r = await fetch(DEEPSEEK_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer " + apiKey
-        },
-        body: JSON.stringify({
-          model: DEEPSEEK_MODEL,
-          messages: [
-            { role: "system", content: SCAN_SYSTEM_PROMPT },
-            { role: "user", content: userContent }
-          ],
-          response_format: { type: "json_object" },
-          temperature: 0,
-          max_tokens: 2048
-        }),
-        signal: controller.signal
-      });
-      clearTimeout(timer);
-      if (!r.ok) {
-        let detail = "";
-        try {
-          const j = await r.json();
-          detail = j && j.error && j.error.message ? j.error.message : "";
-        } catch (e) {}
-        sendJSON(res, 502, { error: "DeepSeek-Fehler " + r.status + (detail ? ": " + detail : "") });
-        return;
-      }
-      const j = await r.json();
-      const content = j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
-      if (!content) {
-        sendJSON(res, 502, { error: "Leere Antwort vom Modell" });
-        return;
-      }
-      let receipt = null;
+    let receipt = null;
+    let lastErr = null;
+    for (let attempt = 0; attempt < 2 && !receipt; attempt++) {
       try {
-        receipt = JSON.parse(content);
+        receipt = await deepseekScan(apiKey, userContent);
       } catch (e) {
-        const m = content.match(/\{[\s\S]*\}/);
-        if (m) { try { receipt = JSON.parse(m[0]); } catch (e2) { receipt = null; } }
+        lastErr = e;
+        if (e && e.status && e.status < 500) break;
       }
-      if (!receipt || typeof receipt !== "object") {
-        sendJSON(res, 502, { error: "Antwort nicht lesbar" });
-        return;
-      }
-      sendJSON(res, 200, { receipt: receipt });
-    } catch (e) {
-      clearTimeout(timer);
-      const aborted = e && e.name === "AbortError";
-      sendJSON(res, 504, { error: aborted ? "Zeitüberschreitung" : "Scan fehlgeschlagen" });
     }
+    if (!receipt) {
+      if (lastErr && lastErr.name === "AbortError") {
+        sendJSON(res, 504, { error: "Zeitüberschreitung" });
+      } else if (lastErr) {
+        sendJSON(res, 502, { error: lastErr.message });
+      } else {
+        sendJSON(res, 502, { error: "Leere Antwort vom Modell" });
+      }
+      return;
+    }
+    sendJSON(res, 200, { receipt: receipt });
     return;
   }
 

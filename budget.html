@@ -78,6 +78,33 @@
   }
   .hero-sub { display: block; font-size: .85rem; color: var(--muted); margin-top: 2px; }
 
+  .tabs {
+    display: flex;
+    gap: 4px;
+    background: #e8eaee;
+    border-radius: 12px;
+    padding: 4px;
+    margin: 0 0 14px;
+  }
+  .tab {
+    flex: 1;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    font-size: .85rem;
+    font-weight: 700;
+    color: var(--muted);
+    padding: 9px 6px;
+    border-radius: 9px;
+    cursor: pointer;
+    transition: background .12s, color .12s;
+  }
+  .tab.active {
+    background: var(--card);
+    color: var(--text);
+    box-shadow: 0 1px 3px rgba(17,24,39,.1);
+  }
+
   .entry {
     background: var(--card);
     border: 1px solid var(--line);
@@ -361,6 +388,11 @@
     <span class="hero-total" id="grandTotal">0,00 €</span>
     <span class="hero-sub" id="receiptCount">Noch keine Belege</span>
   </section>
+  <nav class="tabs" id="tabs">
+    <button class="tab active" data-view="receipts">Belege</button>
+    <button class="tab" data-view="categories">Kategorien</button>
+    <button class="tab" data-view="shops">Läden</button>
+  </nav>
   <section id="book"></section>
 </main>
 
@@ -423,6 +455,7 @@
   let pendingSave = false;
   let saveTimer = null;
   let pollTimer = null;
+  let currentView = "receipts";
 
   function parseToken() {
     const segs = decodeURIComponent(location.pathname).replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
@@ -652,9 +685,19 @@
     box.innerHTML = "";
     const receipts = book.receipts.slice().sort(function (a, b) { return (b.createdAt || 0) - (a.createdAt || 0); });
     let grand = 0;
+    receipts.forEach(function (r) { grand += Number(r.total) || 0; });
+    $("grandTotal").textContent = fmt(grand, "EUR");
+    $("receiptCount").textContent = receipts.length
+      ? receipts.length + (receipts.length === 1 ? " Beleg" : " Belege")
+      : "Noch keine Belege";
 
+    if (currentView === "categories") { renderCategories(box); return; }
+    if (currentView === "shops") { renderShops(box); return; }
+    renderReceipts(box, receipts);
+  }
+
+  function renderReceipts(box, receipts) {
     receipts.forEach(function (r) {
-      grand += Number(r.total) || 0;
       const card = el("div", "entry");
 
       const head = el("div", "entry-head");
@@ -673,7 +716,7 @@
       r.items.forEach(function (it) {
         const row = el("div", "entry-item");
         const nm = el("span");
-        nm.appendChild(el("span", null, (it.qty || 1) + "× "));
+        if ((it.qty || 1) > 1) nm.appendChild(el("span", null, it.qty + "× "));
         nm.appendChild(document.createTextNode(it.name || "Artikel"));
         if (it.category) nm.appendChild(el("span", "cat", " · " + it.category));
         row.appendChild(nm);
@@ -692,10 +735,69 @@
     });
 
     if (!receipts.length) box.appendChild(el("div", "empty", "Noch keine Einträge.\nTippe auf die Kamera unten rechts, um einen Beleg zu scannen."));
-    $("grandTotal").textContent = fmt(grand, "EUR");
-    $("receiptCount").textContent = receipts.length
-      ? receipts.length + (receipts.length === 1 ? " Beleg" : " Belege")
-      : "Noch keine Belege";
+  }
+
+  function groupCard(box, title, meta, total, lines) {
+    const card = el("div", "entry");
+    const head = el("div", "entry-head");
+    const main = el("div", "entry-main");
+    main.appendChild(el("div", "entry-merchant", title));
+    main.appendChild(el("div", "entry-meta", meta));
+    head.appendChild(main);
+    head.appendChild(el("div", "entry-amount", fmt(total, "EUR")));
+    card.appendChild(head);
+    const items = el("div", "entry-items");
+    lines.forEach(function (ln) {
+      const row = el("div", "entry-item");
+      const nm = el("span");
+      if (ln.qty && ln.qty > 1) nm.appendChild(el("span", null, ln.qty + "× "));
+      nm.appendChild(document.createTextNode(ln.name || "Artikel"));
+      if (ln.sub) nm.appendChild(el("span", "cat", " · " + ln.sub));
+      row.appendChild(nm);
+      row.appendChild(el("span", "price", fmt(ln.price, "EUR")));
+      items.appendChild(row);
+    });
+    card.appendChild(items);
+    head.addEventListener("click", function () { card.classList.toggle("open"); });
+    box.appendChild(card);
+  }
+
+  function renderCategories(box) {
+    const map = {};
+    book.receipts.forEach(function (r) {
+      r.items.forEach(function (it) {
+        const c = it.category || "Sonstiges";
+        const g = map[c] || (map[c] = { total: 0, count: 0, lines: [] });
+        const price = Number(it.price) || 0;
+        g.total += price;
+        g.count += 1;
+        g.lines.push({ name: it.name, qty: it.qty || 1, price: price, sub: r.merchant || "" });
+      });
+    });
+    const cats = Object.keys(map).sort(function (a, b) { return map[b].total - map[a].total; });
+    if (!cats.length) { box.appendChild(el("div", "empty", "Noch keine Einträge.")); return; }
+    cats.forEach(function (c) {
+      const g = map[c];
+      g.lines.sort(function (a, b) { return b.price - a.price; });
+      groupCard(box, c, g.count + (g.count === 1 ? " Position" : " Positionen"), g.total, g.lines);
+    });
+  }
+
+  function renderShops(box) {
+    const map = {};
+    book.receipts.forEach(function (r) {
+      const s = r.merchant || "Unbekannter Laden";
+      const g = map[s] || (map[s] = { total: 0, count: 0, lines: [] });
+      g.total += Number(r.total) || 0;
+      g.count += 1;
+      g.lines.push({ name: fmtDate(r.date) || "Kein Datum", price: Number(r.total) || 0 });
+    });
+    const shops = Object.keys(map).sort(function (a, b) { return map[b].total - map[a].total; });
+    if (!shops.length) { box.appendChild(el("div", "empty", "Noch keine Einträge.")); return; }
+    shops.forEach(function (s) {
+      const g = map[s];
+      groupCard(box, s, g.count + (g.count === 1 ? " Beleg" : " Belege"), g.total, g.lines);
+    });
   }
 
   function exportCsv() {
@@ -733,6 +835,15 @@
   }
 
   $("add").addEventListener("click", function () { $("file").click(); });
+  Array.prototype.forEach.call(document.querySelectorAll("#tabs .tab"), function (btn) {
+    btn.addEventListener("click", function () {
+      currentView = btn.getAttribute("data-view");
+      Array.prototype.forEach.call(document.querySelectorAll("#tabs .tab"), function (b) {
+        b.classList.toggle("active", b === btn);
+      });
+      renderBook();
+    });
+  });
   $("settings").addEventListener("click", function () { openSheet("settingsSheet"); });
   $("settingsClose").addEventListener("click", function () { closeSheet("settingsSheet"); });
   $("settingsSheet").addEventListener("click", function (e) { if (e.target === $("settingsSheet")) closeSheet("settingsSheet"); });

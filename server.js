@@ -107,13 +107,16 @@ const SCAN_SYSTEM_PROMPT =
   '{"merchant":"Ladenname","date":"YYYY-MM-DD","currency":"EUR","total":12.34,' +
   '"items":[{"name":"Artikel","qty":1,"price":1.23,"category":"Lebensmittel"}]} ' +
   "Regeln: " +
+  "Behandle den Bon woertlich und rate nicht. Uebernimm jeden Betrag genau so, wie er " +
+  "gedruckt ist, und erfinde keine Mengen oder Betraege. " +
   "price ist die gesamte Zeilensumme der Position - der Betrag, der fuer diese Position " +
   "berechnet wurde. Steht auf dem Bon bereits eine Zeilensumme, uebernimm sie genau. " +
   "Steht nur 'Menge x Einzelpreis', berechne Menge x Einzelpreis als price. " +
-  "qty ist nur dann groesser als 1, wenn auf dem Bon eindeutig eine Menge steht " +
-  '(z.B. "2 x 1,29", "2 Stk", "3 kg", "0,75 l"). Eine einzelne Zahl am rechten Rand ist ' +
-  "meistens der Mehrwertsteuer-Schluessel (A=19%, B=7%) oder eine Positions-/Artikelnummer " +
-  "und KEINE Menge - multipliziere einen Betrag niemals mit so einer Zahl. " +
+  "Setze qty immer auf 1, AUSSER wenn direkt beim Artikel eindeutig eine Menge steht " +
+  '(z.B. "2 x", "2 Stk", "3 kg", "0,75 l"). Eine Zahl am rechten Rand oder am Zeilenende ' +
+  "ist meistens der Mehrwertsteuer-Schluessel (A=19%, B=7%), eine Positionsnummer oder " +
+  "eine Abteilung und KEINE Menge. Im Zweifel setze qty auf 1 und multipliziere niemals " +
+  "einen Betrag mit so einer Zahl. " +
   "Korrigiere jeden Artikelnamen: repariere fehlende oder falsche Buchstaben und " +
   "offensichtliche OCR-Fehler, normalisiere Gross-/Kleinschreibung und entferne " +
   "unnuetige Artikelnummern oder Codes, sodass ein lesbarer Produktname entsteht. " +
@@ -121,9 +124,9 @@ const SCAN_SYSTEM_PROMPT =
   CATEGORIES.join(", ") + ". " +
   "WICHTIG - Gegenprobe: Summiere alle Positionen (qty x price) und vergleiche mit dem " +
   "gedruckten Gesamtbetrag (Summe/Gesamt/zu zahlen). Beide muessen uebereinstimmen. " +
-  "Wenn sie abweichen, hast du eine Menge oder einen Preis falsch gelesen: pruefe jede " +
-  "Position erneut und korrigiere qty/price, bis die Summe exakt dem Gesamtbetrag " +
-  "entspricht. Der gedruckte Gesamtbetrag hat immer Vorrang. " +
+  "Wenn sie abweichen, hast du einen Preis falsch gelesen: pruefe jede Position erneut " +
+  "und korrigiere price, bis die Summe exakt dem Gesamtbetrag entspricht. Der gedruckte " +
+  "Gesamtbetrag hat immer Vorrang. " +
   "Wenn nichts erkannt wird, verwende leere Strings/Arrays und total 0.";
 
 const scanHits = new Map();

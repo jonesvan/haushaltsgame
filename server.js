@@ -8,6 +8,7 @@ const crypto = require("crypto");
 const PORT = process.env.PORT || 8080;
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const INDEX = path.join(__dirname, "index.html");
+const BUDGET = path.join(__dirname, "budget.html");
 const MAX_BODY = 6 * 1024 * 1024;
 const TOKEN_RE = /^[A-Za-z0-9_-]{6,40}$/;
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
@@ -87,6 +88,40 @@ function sanitizeState(input) {
   return out;
 }
 
+function budgetFileFor(token) {
+  return path.join(DATA_DIR, token + ".budget.json");
+}
+
+function round2(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+function sanitizeBook(input) {
+  const out = { receipts: [] };
+  if (input && Array.isArray(input.receipts)) {
+    out.receipts = input.receipts.slice(0, 1000).map(function (r) {
+      const items = Array.isArray(r && r.items) ? r.items.slice(0, 300).map(function (it) {
+        return {
+          id: String(it && it.id || rid()),
+          name: String(it && it.name || ""),
+          qty: Number(it && it.qty) || 1,
+          price: round2(it && it.price)
+        };
+      }) : [];
+      return {
+        id: String(r && r.id || rid()),
+        merchant: String(r && r.merchant || ""),
+        date: String(r && r.date || ""),
+        currency: String(r && r.currency || "EUR").slice(0, 8),
+        total: round2(r && r.total),
+        createdAt: Number(r && r.createdAt) || Date.now(),
+        items: items
+      };
+    });
+  }
+  return out;
+}
+
 function sendJSON(res, code, obj) {
   const body = JSON.stringify(obj);
   res.writeHead(code, {
@@ -97,10 +132,10 @@ function sendJSON(res, code, obj) {
   res.end(body);
 }
 
-function sendIndex(res) {
-  fs.readFile(INDEX, function (err, buf) {
+function sendFile(res, file) {
+  fs.readFile(file, function (err, buf) {
     if (err) {
-      sendJSON(res, 500, { error: "index missing" });
+      sendJSON(res, 500, { error: "file missing" });
       return;
     }
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" });
@@ -155,6 +190,42 @@ const server = http.createServer(async function (req, res) {
     return;
   }
 
+  const budgetMatch = pathname.match(/^\/api\/budget\/([A-Za-z0-9_-]{6,40})$/);
+  if (budgetMatch) {
+    const token = budgetMatch[1];
+    if (!fs.existsSync(fileFor(token))) {
+      sendJSON(res, 404, { error: "not found" });
+      return;
+    }
+    const bfile = budgetFileFor(token);
+    if (method === "GET") {
+      let book = null;
+      try { book = JSON.parse(fs.readFileSync(bfile, "utf8")); } catch (e) { book = null; }
+      sendJSON(res, 200, { rev: book && book.rev || 0, book: (book && book.book) || { receipts: [] } });
+      return;
+    }
+    if (method === "PUT") {
+      try {
+        const body = await readBody(req);
+        let book = null;
+        try { book = JSON.parse(fs.readFileSync(bfile, "utf8")); } catch (e) { book = null; }
+        book = book || { rev: 0 };
+        book.rev = (book.rev || 0) + 1;
+        book.updatedAt = Date.now();
+        book.book = sanitizeBook(body);
+        const tmp = bfile + ".tmp";
+        fs.writeFileSync(tmp, JSON.stringify(book));
+        fs.renameSync(tmp, bfile);
+        sendJSON(res, 200, { rev: book.rev });
+      } catch (e) {
+        sendJSON(res, 400, { error: "bad request" });
+      }
+      return;
+    }
+    sendJSON(res, 405, { error: "method not allowed" });
+    return;
+  }
+
   const match = pathname.match(/^\/api\/state\/([A-Za-z0-9_-]{6,40})$/);
   if (match) {
     const token = match[1];
@@ -186,9 +257,13 @@ const server = http.createServer(async function (req, res) {
   }
 
   if (method === "GET") {
+    if (/^\/(?:[A-Za-z0-9_-]{6,40}\/)?budget(?:\.html)?$/.test(pathname)) {
+      sendFile(res, BUDGET);
+      return;
+    }
     const bare = pathname.replace(/^\/+|\/+$/g, "");
     if (pathname === "/" || pathname === "/index.html" || TOKEN_RE.test(bare)) {
-      sendIndex(res);
+      sendFile(res, INDEX);
       return;
     }
   }

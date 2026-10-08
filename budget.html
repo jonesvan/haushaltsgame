@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Haushaltsbuch</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: linear-gradient(180deg, #eef1f6 0%, #f8f9fb 300px);
+    color: #1f2937;
+    min-height: 100vh;
+    padding-bottom: 40px;
+  }
+  header { padding: 20px 20px 6px; max-width: 760px; margin: 0 auto; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 16px; }
+  .brand { font-weight: 800; letter-spacing: -0.01em; font-size: 1.05rem; }
+  .nav-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid #e5e7eb;
+    background: #fff;
+    color: #374151;
+    font-family: inherit;
+    font-size: .82rem;
+    font-weight: 700;
+    border-radius: 999px;
+    padding: 8px 14px;
+    cursor: pointer;
+    text-decoration: none;
+    box-shadow: 0 2px 8px rgba(15,23,42,.05);
+    transition: transform .15s, box-shadow .15s;
+  }
+  .nav-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(15,23,42,.1); }
+  .nav-btn:active { transform: scale(.96); }
+  .nav-btn[disabled] { opacity: .5; pointer-events: none; }
+
+  .summary { display: flex; gap: 12px; flex-wrap: wrap; }
+  .summary-card {
+    flex: 1 1 160px;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+    padding: 12px 16px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.03), 0 8px 24px rgba(15,23,42,.05);
+  }
+  .summary-card .label { display: block; font-size: .75rem; color: #6b7280; text-transform: uppercase; letter-spacing: .04em; }
+  .summary-card .total { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; }
+
+  main { max-width: 760px; margin: 0 auto; padding: 14px 20px; display: flex; flex-direction: column; gap: 14px; }
+  .card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+    padding: 16px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.03), 0 8px 24px rgba(15,23,42,.05);
+  }
+  .card h2 { font-size: 1rem; margin: 0 0 12px; font-weight: 700; letter-spacing: -0.01em; }
+
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: .72rem; color: #6b7280; font-weight: 600; }
+  input[type=text], input[type=url], input[type=number], input[type=date], input[type=file], textarea, select {
+    font-family: inherit;
+    font-size: .88rem;
+    color: #111827;
+    background: #fff;
+    border: 1px solid #d1d5db;
+    border-radius: 10px;
+    padding: 9px 11px;
+    width: 100%;
+  }
+  input:focus, textarea:focus { outline: 2px solid #bfdbfe; border-color: #93c5fd; }
+  textarea { resize: vertical; min-height: 68px; }
+
+  .model-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+  .model-row .grow { flex: 1 1 220px; }
+  .chk { display: inline-flex; align-items: center; gap: 6px; font-size: .8rem; color: #374151; font-weight: 600; white-space: nowrap; }
+  .chk input { width: auto; }
+
+  .btn {
+    border: 1px solid #d1d5db;
+    background: #fff;
+    color: #374151;
+    font-family: inherit;
+    font-size: .85rem;
+    font-weight: 700;
+    border-radius: 10px;
+    padding: 9px 16px;
+    cursor: pointer;
+    transition: transform .12s, box-shadow .12s, background .12s;
+  }
+  .btn:hover { background: #f9fafb; }
+  .btn:active { transform: scale(.97); }
+  .btn.primary { background: #3b82f6; border-color: #3b82f6; color: #fff; }
+  .btn.primary:hover { background: #2563eb; }
+  .btn[disabled] { opacity: .5; pointer-events: none; }
+  .btn.ghost { border: 0; background: transparent; color: #9ca3af; padding: 6px; }
+  .btn.ghost:hover { color: #ef4444; }
+
+  .hint { font-size: .78rem; color: #6b7280; margin: 6px 0 12px; line-height: 1.45; }
+  .hint.error { color: #b91c1c; }
+  .hint.ok { color: #047857; }
+
+  .drop {
+    position: relative;
+    border: 1.5px dashed #cbd5e1;
+    border-radius: 14px;
+    background: #f9fafb;
+    min-height: 160px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    margin-bottom: 10px;
+  }
+  .drop:hover, .drop.over { border-color: #60a5fa; background: #eff6ff; }
+  .drop-inner { text-align: center; color: #6b7280; font-size: .88rem; padding: 24px; }
+  .drop-icon { font-size: 1.9rem; margin-bottom: 6px; }
+  #preview { display: block; max-width: 100%; height: auto; }
+
+  .raw {
+    background: #0f172a;
+    color: #e2e8f0;
+    font-size: .74rem;
+    line-height: 1.5;
+    border-radius: 10px;
+    padding: 10px 12px;
+    max-height: 220px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: 10px 0 0;
+  }
+
+  .review { margin-top: 14px; border-top: 1px solid #f1f5f9; padding-top: 14px; }
+  .review-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 12px; }
+  .items-edit { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  .item-edit { display: grid; grid-template-columns: 1fr 64px 92px 32px; gap: 6px; align-items: center; }
+  .item-edit .btn.ghost { padding: 4px; font-size: 1rem; }
+  .review-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  .book-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .book-head h2 { margin: 0; }
+  .receipt { border: 1px solid #eef2f7; border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; background: #fff; }
+  .receipt-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  .receipt-head .merchant { font-weight: 700; }
+  .receipt-head .meta { display: block; font-size: .74rem; color: #9ca3af; margin-top: 2px; }
+  .receipt-head .amount { font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .items { list-style: none; margin: 10px 0 0; padding: 8px 0 0; border-top: 1px dashed #f1f5f9; }
+  .items li { display: flex; justify-content: space-between; gap: 12px; font-size: .82rem; color: #4b5563; padding: 3px 0; }
+  .items li .qty { color: #9ca3af; margin-right: 4px; }
+  .items li .price { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .empty { color: #9ca3af; font-size: .88rem; text-align: center; padding: 18px; }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 26px; transform: translate(-50%, 20px);
+    background: #111827; color: #fff; font-size: .85rem; font-weight: 600;
+    padding: 11px 20px; border-radius: 999px; opacity: 0; pointer-events: none;
+    transition: opacity .25s, transform .25s; z-index: 50;
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  @media (max-width: 520px) {
+    .item-edit { grid-template-columns: 1fr 1fr; }
+    .item-edit .it-name { grid-column: 1 / -1; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="topbar">
+    <a class="nav-btn" id="back" href="/">← Aufgaben</a>
+    <span class="brand">🧾 Haushaltsbuch</span>
+    <button class="nav-btn" id="share">🔗 Teilen</button>
+  </div>
+  <div class="summary">
+    <div class="summary-card">
+      <span class="label">Ausgaben gesamt</span>
+      <span class="total" id="grandTotal">0,00 €</span>
+    </div>
+    <div class="summary-card">
+      <span class="label">Belege</span>
+      <span class="total" id="receiptCount">0</span>
+    </div>
+  </div>
+</header>
+<main>
+  <section class="card">
+    <h2>Beleg scannen</h2>
+    <div class="model-row">
+      <input id="modelUrl" class="grow" type="url" placeholder="https://…/gemma-4-E4B-it-web.task">
+      <button class="btn" id="loadModel">Modell laden</button>
+    </div>
+    <div class="model-row">
+      <input id="modelFile" class="grow" type="file" accept=".task,.bin,.litertlm">
+      <label class="chk"><input type="checkbox" id="vision" checked> Bild senden</label>
+      <label class="chk"><input type="checkbox" id="useGpu" checked> WebGPU</label>
+    </div>
+    <p class="hint" id="modelStatus">Lädt ein Gemma&nbsp;4 Web-Modell (Standard: <code>gemma-4-E4B-it-web.task</code>, ~3&nbsp;GB; leichter: <code>gemma-4-E2B-it-web.task</code>, ~2&nbsp;GB) per URL oder als lokale <code>.task</code>-Datei. Das Modell läuft vollständig im Browser über WebGPU. Beim ersten Laden wird es heruntergeladen und im Browser-Cache gehalten.</p>
+
+    <div class="drop" id="drop">
+      <canvas id="preview" hidden></canvas>
+      <div class="drop-inner" id="dropInner">
+        <div class="drop-icon">📷</div>
+        <div>Belegfoto wählen oder hierher ziehen</div>
+      </div>
+    </div>
+    <input id="file" type="file" accept="image/*" capture="environment" hidden>
+    <textarea id="ocrText" placeholder="Optional: Kassenbon-Text einfügen (für textbasierte Modelle)"></textarea>
+    <div style="margin-top:10px">
+      <button class="btn primary" id="scan" disabled>Scannen</button>
+    </div>
+    <pre class="raw" id="raw" hidden></pre>
+    <div class="review" id="review" hidden></div>
+  </section>
+
+  <section class="card">
+    <div class="book-head">
+      <h2>Einträge</h2>
+      <button class="nav-btn" id="manual">+ Manuell</button>
+    </div>
+    <div id="book"></div>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script type="module">
+(function () {
+  const BOOK_KEY = "haushaltsgame.budget.v1";
+  const MODEL_KEY = "haushaltsgame.budget.model";
+  const DEFAULT_MODEL = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it-web.task";
+  const GENAI_CDN = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-genai@0.10.29";
+  const TOKEN_RE = /^[A-Za-z0-9_-]{6,40}$/;
+
+  const $ = function (id) { return document.getElementById(id); };
+  const el = function (tag, cls, text) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined) n.textContent = text;
+    return n;
+  };
+  const uid = function () { return Math.random().toString(36).slice(2, 9); };
+
+  let token = null;
+  let serverMode = /^https?:$/.test(location.protocol) && !/(^|\.)github\.io$/.test(location.hostname);
+  let book = null;
+  let knownRev = 0;
+  let pendingSave = false;
+  let saveTimer = null;
+  let pollTimer = null;
+
+  let llm = null;
+  let modelLabel = "";
+  let selectedImage = null;
+  let pendingReceipt = null;
+
+  function parseToken() {
+    const segs = decodeURIComponent(location.pathname).replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
+    const last = (segs[segs.length - 1] || "").replace(/\.html$/, "");
+    if (last !== "budget") return undefined;
+    if (segs.length >= 2 && TOKEN_RE.test(segs[0])) return segs[0];
+    return null;
+  }
+
+  function emptyBook() { return { receipts: [] }; }
+
+  function normalizeBook(b) {
+    if (!b || typeof b !== "object" || !Array.isArray(b.receipts)) return emptyBook();
+    b.receipts.forEach(function (r) {
+      if (!Array.isArray(r.items)) r.items = [];
+      r.total = parseMoney(r.total);
+      if (!r.total) r.total = r.items.reduce(function (s, it) { return s + (Number(it.price) || 0); }, 0);
+    });
+    return b;
+  }
+
+  function loadLocal() {
+    try {
+      return normalizeBook(JSON.parse(localStorage.getItem(BOOK_KEY)));
+    } catch (e) {
+      return emptyBook();
+    }
+  }
+
+  function save() {
+    if (serverMode && token) {
+      pendingSave = true;
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(putRemote, 400);
+    } else {
+      try { localStorage.setItem(BOOK_KEY, JSON.stringify(book)); } catch (e) {}
+    }
+  }
+
+  function putRemote() {
+    fetch("/api/budget/" + encodeURIComponent(token), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(book)
+    }).then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) { if (j && typeof j.rev === "number") knownRev = j.rev; pendingSave = false; })
+      .catch(function () { pendingSave = false; });
+  }
+
+  function pullRemote() {
+    if (!serverMode || !token || pendingSave) return;
+    fetch("/api/budget/" + encodeURIComponent(token)).then(function (r) {
+      return r.ok ? r.json() : null;
+    }).then(function (data) {
+      if (data && typeof data.rev === "number" && data.rev !== knownRev) {
+        knownRev = data.rev;
+        book = normalizeBook(data.book);
+        renderBook();
+      }
+    }).catch(function () {});
+  }
+
+  async function boot() {
+    $("modelUrl").value = localStorage.getItem(MODEL_KEY) || DEFAULT_MODEL;
+    token = parseToken();
+    $("back").href = token ? "/" + token : "/";
+
+    if (serverMode) {
+      if (token === null) {
+        try {
+          const r = await fetch("/api/new", { method: "POST" });
+          if (r.ok) { const j = await r.json(); location.replace("/" + j.token + "/budget"); return; }
+        } catch (e) {}
+      } else if (typeof token === "string") {
+        try {
+          const r = await fetch("/api/budget/" + encodeURIComponent(token));
+          if (r.ok) {
+            const data = await r.json();
+            knownRev = data.rev || 0;
+            book = normalizeBook(data.book);
+            renderBook();
+            pollTimer = setInterval(pullRemote, 12000);
+            return;
+          }
+        } catch (e) {}
+      }
+    }
+    book = loadLocal();
+    renderBook();
+  }
+
+  function showToast(msg) {
+    const t = $("toast");
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(function () { t.classList.remove("show"); }, 1900);
+  }
+
+  function parseMoney(v) {
+    if (typeof v === "number") return isFinite(v) ? v : 0;
+    if (typeof v !== "string") return 0;
+    let s = v.trim().replace(/[^0-9.,\-]/g, "");
+    if (s.indexOf(",") > -1 && s.indexOf(".") > -1) {
+      if (s.lastIndexOf(",") > s.lastIndexOf(".")) s = s.replace(/\./g, "").replace(",", ".");
+      else s = s.replace(/,/g, "");
+    } else if (s.indexOf(",") > -1) {
+      s = s.replace(",", ".");
+    }
+    const n = parseFloat(s);
+    return isFinite(n) ? n : 0;
+  }
+
+  function fmt(n, cur) {
+    try { return new Intl.NumberFormat("de-DE", { style: "currency", currency: cur || "EUR" }).format(Number(n) || 0); }
+    catch (e) { return (Number(n) || 0).toFixed(2) + " " + (cur || ""); }
+  }
+
+  function normalizeDate(v) {
+    if (typeof v !== "string") return "";
+    const s = v.trim();
+    let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return m[1] + "-" + m[2] + "-" + m[3];
+    m = s.match(/^(\d{1,2})[.\/](\d{1,2})[.\/](\d{4})/);
+    if (m) return m[3] + "-" + ("0" + m[2]).slice(-2) + "-" + ("0" + m[1]).slice(-2);
+    return s;
+  }
+
+  function pick(obj, keys) {
+    for (let i = 0; i < keys.length; i++) {
+      const k = keys[i];
+      if (obj && obj[k] !== undefined && obj[k] !== null && obj[k] !== "") return obj[k];
+    }
+    return undefined;
+  }
+
+  function extractJson(text) {
+    if (!text) return null;
+    const src = text.replace(/```[a-zA-Z]*/g, "```");
+    const start = src.indexOf("{");
+    if (start < 0) return null;
+    let depth = 0, inStr = false, esc = false, end = -1;
+    for (let i = start; i < src.length; i++) {
+      const c = src[i];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (c === "\\") esc = true;
+        else if (c === '"') inStr = false;
+      } else if (c === '"') inStr = true;
+      else if (c === "{") depth++;
+      else if (c === "}") { depth--; if (depth === 0) { end = i; break; } }
+    }
+    let json = src.slice(start, end < 0 ? src.length : end + 1);
+    try { return JSON.parse(json); } catch (e) {}
+    const repaired = json
+      .replace(/,\s*([}\]])/g, "$1")
+      .replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:/g, '$1"$2":')
+      .replace(/'/g, '"');
+    try { return JSON.parse(repaired); } catch (e) {}
+    return null;
+  }
+
+  function normalizeReceipt(obj) {
+    if (!obj || typeof obj !== "object") return null;
+    const rawItems = pick(obj, ["items", "positionen", "line_items", "lineItems", "artikel", "posten", "products", "lines"]);
+    const items = [];
+    if (Array.isArray(rawItems)) {
+      rawItems.forEach(function (it) {
+        if (typeof it === "string") { items.push({ id: uid(), name: it, qty: 1, price: 0 }); return; }
+        if (!it || typeof it !== "object") return;
+        const qty = parseMoney(pick(it, ["qty", "quantity", "menge", "count", "anzahl"])) || 1;
+        let price = parseMoney(pick(it, ["price", "total", "summe", "betrag", "amount", "gesamt"]));
+        if (!price) {
+          const unit = parseMoney(pick(it, ["unitPrice", "unit_price", "einzelpreis", "pricePerUnit", "preis"]));
+          price = unit * qty;
+        }
+        const name = pick(it, ["name", "artikel", "item", "description", "bezeichnung", "produkt", "text"]);
+        items.push({ id: uid(), name: String(name || "Artikel"), qty: qty, price: price });
+      });
+    }
+    const merchant = String(pick(obj, ["merchant", "store", "shop", "vendor", "laden", "geschaeft", "geschäft", "haendler", "händler", "name"]) || "");
+    const total = parseMoney(pick(obj, ["total", "summe", "gesamt", "gesamtbetrag", "amount", "betrag"]));
+    return {
+      id: uid(),
+      merchant: merchant,
+      date: normalizeDate(pick(obj, ["date", "datum", "kaufdatum"]) || ""),
+      currency: String(pick(obj, ["currency", "waehrung", "währung", "curr"]) || "EUR").toUpperCase().slice(0, 4),
+      total: total || items.reduce(function (s, it) { return s + it.price; }, 0),
+      createdAt: Date.now(),
+      items: items
+    };
+  }
+
+  function buildPrompt() {
+    return "Du bist ein Kassenzettel-Scanner. Lies den Kassenbon und antworte AUSSCHLIESSLICH mit " +
+      "einem JSON-Objekt, ohne Erklaerung und ohne Markdown-Codeblock. Format:\n" +
+      '{"merchant":"Ladenname","date":"YYYY-MM-DD","currency":"EUR","total":12.34,' +
+      '"items":[{"name":"Artikel","qty":1,"price":1.23}]}\n' +
+      "Regeln: price ist der Gesamtpreis der Position. Sind Einzelpreis und Menge gegeben, " +
+      "multipliziere sie. Fehlt total, summiere die Positionen. Gib alle Positionen aus.";
+  }
+
+  async function loadModel() {
+    const url = $("modelUrl").value.trim();
+    const localFile = $("modelFile").files && $("modelFile").files[0];
+    const useGpu = $("useGpu").checked;
+    const vision = $("vision").checked;
+    if (!url && !localFile) { setStatus("Bitte Modell-URL angeben oder .task-Datei wählen.", "error"); return; }
+
+    $("loadModel").disabled = true;
+    try {
+      setStatus("Lade MediaPipe GenAI Runtime…", "");
+      const mod = await import(GENAI_CDN + "/genai_bundle.mjs");
+      const fileset = await mod.FilesetResolver.forGenAiTasks(GENAI_CDN + "/wasm");
+
+      const baseOptions = { delegate: useGpu ? "GPU" : "CPU" };
+      if (localFile) {
+        setStatus("Lade lokale Modelldatei (" + (localFile.size / 1048576).toFixed(0) + " MB)…", "");
+        baseOptions.modelAssetBuffer = localFile.stream().getReader();
+        modelLabel = localFile.name;
+      } else {
+        let host = url;
+        try { host = new URL(url).host; } catch (e) {}
+        setStatus("Lade Modell von " + host + " (mehrere GB, kann dauern)…", "");
+        baseOptions.modelAssetPath = url;
+        modelLabel = url.split("/").pop();
+        localStorage.setItem(MODEL_KEY, url);
+      }
+
+      const options = {
+        baseOptions: baseOptions,
+        maxTokens: 2048,
+        topK: 1,
+        temperature: 0,
+        randomSeed: 0
+      };
+      if (vision) options.maxNumImages = 1;
+
+      llm = await mod.LlmInference.createFromOptions(fileset, options);
+      setStatus("Modell bereit ✓ " + modelLabel, "ok");
+      showToast("Modell geladen");
+      updateScanButton();
+    } catch (e) {
+      setStatus("Modell konnte nicht geladen werden: " + (e && e.message ? e.message : e), "error");
+    }
+    $("loadModel").disabled = false;
+  }
+
+  function setStatus(msg, cls) {
+    const n = $("modelStatus");
+    n.textContent = msg;
+    n.className = "hint" + (cls ? " " + cls : "");
+  }
+
+  async function handleImage(file) {
+    if (!file) return;
+    try {
+      const bitmap = await createImageBitmap(file);
+      const max = 1280;
+      const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      selectedImage = canvas;
+      const preview = $("preview");
+      preview.width = canvas.width;
+      preview.height = canvas.height;
+      preview.getContext("2d").drawImage(canvas, 0, 0);
+      preview.hidden = false;
+      $("dropInner").hidden = true;
+      updateScanButton();
+    } catch (e) {
+      showToast("Bild konnte nicht geladen werden");
+    }
+  }
+
+  function updateScanButton() {
+    const hasInput = !!selectedImage || !!$("ocrText").value.trim();
+    $("scan").disabled = !(llm && hasInput);
+  }
+
+  async function scan() {
+    if (!llm) return;
+    const vision = $("vision").checked;
+    const parts = [];
+    if (vision && selectedImage) parts.push({ imageSource: selectedImage });
+    const text = $("ocrText").value.trim();
+    if (text) parts.push("Kassenbon-Text:\n" + text);
+    parts.push(buildPrompt());
+
+    $("raw").hidden = false;
+    $("raw").textContent = "";
+    $("review").hidden = true;
+    pendingReceipt = null;
+    $("scan").disabled = true;
+    $("scan").textContent = "Scanne…";
+
+    try {
+      const result = await llm.generateResponse(parts, function (partial) {
+        $("raw").textContent = partial;
+      });
+      $("raw").textContent = result || "(keine Ausgabe)";
+      const parsed = normalizeReceipt(extractJson(result));
+      if (!parsed || (!parsed.items.length && !parsed.total && !parsed.merchant)) {
+        showToast("Keine Einträge erkannt");
+      } else {
+        pendingReceipt = parsed;
+        renderReview(parsed);
+      }
+    } catch (e) {
+      showToast("Fehler beim Scannen");
+      $("raw").hidden = false;
+      $("raw").textContent = String(e && e.message ? e.message : e);
+    }
+    $("scan").disabled = false;
+    $("scan").textContent = "Scannen";
+  }
+
+  function field(label, id, value, type) {
+    const wrap = el("div", "field");
+    wrap.appendChild(el("label", null, label));
+    const input = el("input");
+    input.id = id;
+    input.type = type || "text";
+    input.value = value === undefined || value === null ? "" : value;
+    wrap.appendChild(input);
+    return wrap;
+  }
+
+  function itemRow(it) {
+    const row = el("div", "item-edit");
+    const name = el("input", "it-name");
+    name.type = "text";
+    name.placeholder = "Artikel";
+    name.value = it.name || "";
+    const qty = el("input", "it-qty");
+    qty.type = "number";
+    qty.min = "0";
+    qty.step = "any";
+    qty.value = it.qty || 1;
+    const price = el("input", "it-price");
+    price.type = "number";
+    price.step = "0.01";
+    price.value = Number(it.price || 0).toFixed(2);
+    const rm = el("button", "btn ghost", "×");
+    rm.type = "button";
+    rm.title = "Position entfernen";
+    rm.addEventListener("click", function () { row.remove(); });
+    row.appendChild(name);
+    row.appendChild(qty);
+    row.appendChild(price);
+    row.appendChild(rm);
+    return row;
+  }
+
+  function renderReview(r) {
+    const box = $("review");
+    box.hidden = false;
+    box.innerHTML = "";
+    const grid = el("div", "review-grid");
+    grid.appendChild(field("Laden", "f_merchant", r.merchant));
+    grid.appendChild(field("Datum", "f_date", r.date, "date"));
+    grid.appendChild(field("Währung", "f_currency", r.currency));
+    grid.appendChild(field("Gesamt", "f_total", Number(r.total || 0).toFixed(2), "number"));
+    box.appendChild(grid);
+
+    const items = el("div", "items-edit");
+    r.items.forEach(function (it) { items.appendChild(itemRow(it)); });
+    box.appendChild(items);
+
+    const actions = el("div", "review-actions");
+    const add = el("button", "btn", "+ Position");
+    add.type = "button";
+    add.addEventListener("click", function () { items.appendChild(itemRow({ name: "", qty: 1, price: 0 })); });
+    const commit = el("button", "btn primary", "Ins Haushaltsbuch übernehmen");
+    commit.type = "button";
+    commit.addEventListener("click", commitReview);
+    actions.appendChild(add);
+    actions.appendChild(commit);
+    box.appendChild(actions);
+  }
+
+  function readReview() {
+    const items = Array.prototype.slice.call($("review").querySelectorAll(".item-edit")).map(function (row) {
+      return {
+        id: uid(),
+        name: row.querySelector(".it-name").value.trim() || "Artikel",
+        qty: parseMoney(row.querySelector(".it-qty").value) || 1,
+        price: parseMoney(row.querySelector(".it-price").value)
+      };
+    }).filter(function (it) { return it.name || it.price; });
+    return {
+      id: uid(),
+      merchant: $("f_merchant").value.trim(),
+      date: $("f_date").value,
+      currency: ($("f_currency").value.trim() || "EUR").toUpperCase(),
+      total: parseMoney($("f_total").value) || items.reduce(function (s, it) { return s + it.price; }, 0),
+      createdAt: Date.now(),
+      items: items
+    };
+  }
+
+  function commitReview() {
+    const r = readReview();
+    if (!r.items.length && !r.total) { showToast("Keine Positionen"); return; }
+    book.receipts.push(r);
+    save();
+    renderBook();
+    $("review").hidden = true;
+    $("raw").hidden = true;
+    showToast("Eintrag übernommen ✓");
+  }
+
+  function deleteReceipt(id) {
+    book.receipts = book.receipts.filter(function (r) { return r.id !== id; });
+    save();
+    renderBook();
+  }
+
+  function renderBook() {
+    const box = $("book");
+    box.innerHTML = "";
+    const receipts = book.receipts.slice().sort(function (a, b) { return (b.createdAt || 0) - (a.createdAt || 0); });
+    let grand = 0;
+    receipts.forEach(function (r) {
+      grand += Number(r.total) || 0;
+      const card = el("div", "receipt");
+      const head = el("div", "receipt-head");
+      const left = el("div");
+      left.appendChild(el("div", "merchant", r.merchant || "Unbekannter Laden"));
+      const n = r.items.length;
+      const meta = [r.date || "ohne Datum", n + (n === 1 ? " Position" : " Positionen")].join(" · ");
+      left.appendChild(el("span", "meta", meta));
+      head.appendChild(left);
+      const right = el("div");
+      right.appendChild(el("div", "amount", fmt(r.total, r.currency)));
+      const rm = el("button", "btn ghost", "×");
+      rm.title = "Beleg löschen";
+      rm.addEventListener("click", function () { deleteReceipt(r.id); });
+      right.appendChild(rm);
+      head.appendChild(right);
+      card.appendChild(head);
+
+      if (r.items.length) {
+        const list = el("ul", "items");
+        r.items.forEach(function (it) {
+          const li = el("li");
+          const nm = el("span");
+          nm.appendChild(el("span", "qty", (it.qty || 1) + "× "));
+          nm.appendChild(document.createTextNode(it.name || "Artikel"));
+          li.appendChild(nm);
+          li.appendChild(el("span", "price", fmt(it.price, r.currency)));
+          list.appendChild(li);
+        });
+        card.appendChild(list);
+      }
+      box.appendChild(card);
+    });
+
+    if (!receipts.length) box.appendChild(el("div", "empty", "Noch keine Einträge. Scanne einen Beleg oder füge manuell hinzu."));
+    $("grandTotal").textContent = fmt(grand, "EUR");
+    $("receiptCount").textContent = String(receipts.length);
+  }
+
+  function manualAdd() {
+    const merchant = prompt("Laden / Bezeichnung?");
+    if (merchant === null) return;
+    const total = parseMoney(prompt("Betrag?", "0,00") || "");
+    book.receipts.push({ id: uid(), merchant: merchant.trim(), date: "", currency: "EUR", total: total, createdAt: Date.now(), items: [] });
+    save();
+    renderBook();
+  }
+
+  function exportCsv() {
+    const rows = [["Laden", "Datum", "Artikel", "Menge", "Preis", "Waehrung", "Belegsumme"]];
+    book.receipts.forEach(function (r) {
+      if (!r.items.length) {
+        rows.push([r.merchant, r.date, "", "", "", r.currency, r.total]);
+      } else {
+        r.items.forEach(function (it) {
+          rows.push([r.merchant, r.date, it.name, it.qty, it.price, r.currency, r.total]);
+        });
+      }
+    });
+    const csv = rows.map(function (row) {
+      return row.map(function (c) {
+        const s = String(c === undefined || c === null ? "" : c);
+        return /[",;\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      }).join(";");
+    }).join("\n");
+    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "haushaltsbuch.csv";
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
+  }
+
+  $("loadModel").addEventListener("click", loadModel);
+  $("scan").addEventListener("click", scan);
+  $("manual").addEventListener("click", manualAdd);
+  $("share").addEventListener("click", function () {
+    const url = location.href;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(function () { showToast("Link kopiert ✓"); }, function () { prompt("Link kopieren:", url); });
+    } else {
+      prompt("Link kopieren:", url);
+    }
+  });
+  $("ocrText").addEventListener("input", updateScanButton);
+  $("file").addEventListener("change", function () { handleImage($("file").files && $("file").files[0]); });
+
+  const drop = $("drop");
+  drop.addEventListener("click", function () { $("file").click(); });
+  ["dragenter", "dragover"].forEach(function (ev) {
+    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add("over"); });
+  });
+  ["dragleave", "drop"].forEach(function (ev) {
+    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove("over"); });
+  });
+  drop.addEventListener("drop", function (e) {
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) handleImage(f);
+  });
+
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) pullRemote();
+  });
+
+  window.addEventListener("pagehide", function () { if (pendingSave) putRemote(); });
+
+  boot();
+})();
+</script>
+</body>
+</html>

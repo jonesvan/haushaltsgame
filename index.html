@@ -255,10 +255,17 @@
 
   .add-person:active, .add-task:active { transform: scale(.97); }
 
-  .share-btn {
-    position: absolute;
-    top: 20px;
-    right: 20px;
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .share-btn, .nav-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     border: 1px solid #e5e7eb;
     background: #fff;
     color: #374151;
@@ -268,11 +275,12 @@
     border-radius: 999px;
     padding: 8px 14px;
     cursor: pointer;
+    text-decoration: none;
     box-shadow: 0 2px 8px rgba(15,23,42,.05);
     transition: transform .15s, box-shadow .15s;
   }
-  .share-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(15,23,42,.1); }
-  .share-btn:active { transform: scale(.96); }
+  .share-btn:hover, .nav-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(15,23,42,.1); }
+  .share-btn:active, .nav-btn:active { transform: scale(.96); }
 
   .toast {
     position: fixed;
@@ -303,7 +311,10 @@
 </head>
 <body>
 <header>
-  <button class="share-btn" id="share" title="Link teilen">🔗 Teilen</button>
+  <div class="topbar">
+    <a class="nav-btn" id="budget" href="budget.html" title="Belegscanner &amp; Haushaltsbuch">🧾 Haushaltsbuch</a>
+    <button class="share-btn" id="share" title="Link teilen">🔗 Teilen</button>
+  </div>
   <div id="totals" class="totals"></div>
 </header>
 <main id="tasks"></main>
@@ -336,6 +347,7 @@
   var TOKEN_RE = /^[A-Za-z0-9_-]{6,40}$/;
   var pathToken = decodeURIComponent(location.pathname).replace(/^\/+|\/+$/g, "");
   var SERVER_MODE = /^https?:$/.test(location.protocol) && TOKEN_RE.test(pathToken) && !/(^|\.)github\.io$/.test(location.hostname);
+  document.getElementById("budget").href = SERVER_MODE ? "/" + pathToken + "/budget" : "budget.html";
   var knownRev = 0;
   var pendingSave = false;
   var saveTimer = null;

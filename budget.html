@@ -316,6 +316,33 @@
 
   .settings-actions { margin-top: 18px; display: flex; flex-direction: column; gap: 10px; }
 
+  .scan-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgba(17,24,39,.55);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    color: #fff;
+    font-size: .9rem;
+    font-weight: 600;
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
+  }
+  .scan-overlay[hidden] { display: none; }
+  .spinner {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 3px solid rgba(255,255,255,.3);
+    border-top-color: #fff;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
   @media (max-width: 420px) {
     .review-grid { grid-template-columns: 1fr; }
   }
@@ -339,36 +366,11 @@
 
 <button class="fab" id="add" aria-label="Beleg fotografieren"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.2a1 1 0 0 0 .83-.45l.94-1.41A1 1 0 0 1 10.3 3.68h3.4a1 1 0 0 1 .83.46l.94 1.41A1 1 0 0 0 16.3 6h1.2A2.5 2.5 0 0 1 20 8.5v8A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="12.3" r="3.2" stroke="currentColor" stroke-width="1.8"/></svg></button>
 
-<div class="sheet-backdrop" id="scanSheet">
-  <div class="sheet">
-    <div class="sheet-grip"></div>
-    <div class="sheet-head">
-      <h2 id="scanTitle">Beleg scannen</h2>
-      <button class="icon-btn ghost" id="scanClose" aria-label="Schließen">✕</button>
-    </div>
+<input id="file" type="file" accept="image/*" capture="environment" hidden>
 
-    <div id="scanInput">
-      <div class="drop" id="drop">
-        <canvas id="preview" hidden></canvas>
-        <div class="drop-inner" id="dropInner">
-          <div class="drop-icon">📷</div>
-          <div>Foto aufnehmen oder wählen</div>
-        </div>
-      </div>
-      <input id="file" type="file" accept="image/*" capture="environment" hidden>
-
-      <details class="more">
-        <summary>Kassenbon-Text einfügen</summary>
-        <textarea id="ocrText" placeholder="Text hier einfügen…"></textarea>
-      </details>
-
-      <button class="btn primary block" id="scan" disabled>Scannen</button>
-      <div class="scan-status" id="scanStatus" hidden></div>
-      <button class="link" id="manualAction" style="margin-top:14px">Manuell eintragen</button>
-    </div>
-
-    <div id="review" hidden></div>
-  </div>
+<div class="scan-overlay" id="scanOverlay" hidden>
+  <div class="spinner"></div>
+  <span>Beleg wird gescannt…</span>
 </div>
 
 <div class="sheet-backdrop" id="settingsSheet">
@@ -377,10 +379,6 @@
     <div class="sheet-head">
       <h2>Einstellungen</h2>
       <button class="icon-btn ghost" id="settingsClose" aria-label="Schließen">✕</button>
-    </div>
-
-    <div class="toggles">
-      <label class="chk"><input type="checkbox" id="vision" checked> Bild mitsenden</label>
     </div>
 
     <div class="settings-actions">
@@ -425,8 +423,6 @@
   let pendingSave = false;
   let saveTimer = null;
   let pollTimer = null;
-
-  let selectedImage = null;
 
   function parseToken() {
     const segs = decodeURIComponent(location.pathname).replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
@@ -604,34 +600,6 @@
     };
   }
 
-  async function handleImage(file) {
-    if (!file) return;
-    try {
-      const bitmap = await createImageBitmap(file);
-      const max = 1280;
-      const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-      canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-      selectedImage = canvas;
-      const preview = $("preview");
-      preview.width = canvas.width;
-      preview.height = canvas.height;
-      preview.getContext("2d").drawImage(canvas, 0, 0);
-      preview.hidden = false;
-      $("dropInner").hidden = true;
-      updateScanButton();
-    } catch (e) {
-      showToast("Bild konnte nicht geladen werden");
-    }
-  }
-
-  function updateScanButton() {
-    const hasInput = !!selectedImage || !!$("ocrText").value.trim();
-    $("scan").disabled = !hasInput;
-  }
-
   async function scanOnServer(image, text) {
     const r = await fetch("/api/scan", {
       method: "POST",
@@ -644,157 +612,33 @@
     return normalizeReceipt(j.receipt);
   }
 
-  async function scan() {
-    const text = $("ocrText").value.trim();
-    const image = selectedImage && $("vision").checked ? selectedImage.toDataURL("image/jpeg", 0.85) : "";
-    if (!image && !text) return;
-
-    const status = $("scanStatus");
-    status.hidden = false;
-    status.textContent = "Scanne…";
-    $("scan").disabled = true;
-    $("scan").textContent = "Scanne…";
-
+  async function scanImageFile(file) {
+    const overlay = $("scanOverlay");
+    overlay.hidden = false;
     try {
-      const parsed = await scanOnServer(image, text);
-      status.hidden = true;
+      const bitmap = await createImageBitmap(file);
+      const max = 1280;
+      const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      const image = canvas.toDataURL("image/jpeg", 0.85);
+      const parsed = await scanOnServer(image, "");
       if (!parsed || (!parsed.items.length && !parsed.total && !parsed.merchant)) {
         showToast("Keine Einträge erkannt");
       } else {
-        $("scanInput").hidden = true;
-        $("scanTitle").textContent = "Beleg prüfen";
-        renderReview(parsed);
+        book.receipts.push(parsed);
+        save();
+        renderBook();
+        const n = parsed.items.length;
+        showToast("Beleg hinzugefügt" + (n ? " · " + n + (n === 1 ? " Position" : " Positionen") : ""));
       }
     } catch (e) {
       showToast("Fehler beim Scannen");
-      status.hidden = false;
-      status.textContent = String(e && e.message ? e.message : e);
+    } finally {
+      overlay.hidden = true;
     }
-    $("scan").disabled = false;
-    $("scan").textContent = "Scannen";
-    updateScanButton();
-  }
-
-  function field(label, id, value, type) {
-    const wrap = el("div", "field");
-    wrap.appendChild(el("label", null, label));
-    const input = el("input");
-    input.id = id;
-    input.type = type || "text";
-    input.value = value === undefined || value === null ? "" : value;
-    wrap.appendChild(input);
-    return wrap;
-  }
-
-  function itemRow(it) {
-    const row = el("div", "item-edit");
-    const name = el("input", "it-name");
-    name.type = "text";
-    name.placeholder = "Artikel";
-    name.value = it.name || "";
-    const cat = el("select", "it-cat");
-    CATEGORIES.forEach(function (c) {
-      const o = el("option", null, c);
-      o.value = c;
-      cat.appendChild(o);
-    });
-    cat.value = normalizeCategory(it.category);
-    const qty = el("input", "it-qty");
-    qty.type = "number";
-    qty.inputMode = "decimal";
-    qty.min = "0";
-    qty.step = "any";
-    qty.placeholder = "Menge";
-    qty.value = it.qty || 1;
-    const price = el("input", "it-price");
-    price.type = "number";
-    price.inputMode = "decimal";
-    price.step = "0.01";
-    price.placeholder = "Preis";
-    price.value = Number(it.price || 0).toFixed(2);
-    const rm = el("button", "btn ghost", "×");
-    rm.type = "button";
-    rm.title = "Position entfernen";
-    rm.addEventListener("click", function () { row.remove(); });
-    row.appendChild(name);
-    row.appendChild(cat);
-    row.appendChild(qty);
-    row.appendChild(price);
-    row.appendChild(rm);
-    return row;
-  }
-
-  function renderReview(r) {
-    const box = $("review");
-    box.hidden = false;
-    box.innerHTML = "";
-
-    const total = el("div", "field");
-    total.appendChild(el("label", null, "Betrag"));
-    const totalInput = el("input");
-    totalInput.id = "f_total";
-    totalInput.type = "number";
-    totalInput.inputMode = "decimal";
-    totalInput.step = "0.01";
-    totalInput.value = Number(r.total || 0).toFixed(2);
-    total.appendChild(totalInput);
-    box.appendChild(total);
-
-    const grid = el("div", "review-grid");
-    grid.appendChild(field("Laden", "f_merchant", r.merchant));
-    grid.appendChild(field("Datum", "f_date", r.date, "date"));
-    box.appendChild(grid);
-
-    const items = el("div", "items-edit");
-    r.items.forEach(function (it) { items.appendChild(itemRow(it)); });
-    box.appendChild(items);
-
-    const add = el("button", "btn block ghost-add", "+ Position");
-    add.type = "button";
-    add.addEventListener("click", function () { items.appendChild(itemRow({ name: "", qty: 1, price: 0, category: "Sonstiges" })); });
-    box.appendChild(add);
-
-    const actions = el("div", "review-actions");
-    const cancel = el("button", "btn", "Abbrechen");
-    cancel.type = "button";
-    cancel.addEventListener("click", closeScanSheet);
-    const commit = el("button", "btn primary", "Speichern");
-    commit.type = "button";
-    commit.addEventListener("click", commitReview);
-    actions.appendChild(cancel);
-    actions.appendChild(commit);
-    box.appendChild(actions);
-  }
-
-  function readReview() {
-    const items = Array.prototype.slice.call($("review").querySelectorAll(".item-edit")).map(function (row) {
-      return {
-        id: uid(),
-        name: row.querySelector(".it-name").value.trim() || "Artikel",
-        qty: parseMoney(row.querySelector(".it-qty").value) || 1,
-        price: parseMoney(row.querySelector(".it-price").value),
-        category: normalizeCategory(row.querySelector(".it-cat").value)
-      };
-    }).filter(function (it) { return it.name || it.price; });
-    return {
-      id: uid(),
-      merchant: $("f_merchant").value.trim(),
-      date: $("f_date").value,
-      currency: "EUR",
-      total: parseMoney($("f_total").value) || items.reduce(function (s, it) { return s + it.price; }, 0),
-      createdAt: Date.now(),
-      items: items
-    };
-  }
-
-  function commitReview() {
-    const r = readReview();
-    if (!r.items.length && !r.total) { showToast("Keine Positionen"); return; }
-    book.receipts.push(r);
-    save();
-    renderBook();
-    closeScanSheet();
-    showToast("Eintrag gespeichert ✓");
   }
 
   function deleteReceipt(id) {
@@ -854,40 +698,6 @@
       : "Noch keine Belege";
   }
 
-  function blankReceipt() {
-    return { id: uid(), merchant: "", date: "", currency: "EUR", total: 0, createdAt: Date.now(), items: [] };
-  }
-
-  function openScanFlow() {
-    $("scanInput").hidden = false;
-    $("review").hidden = true;
-    $("scanTitle").textContent = "Beleg scannen";
-    updateScanButton();
-    openSheet("scanSheet");
-  }
-
-  function manualAdd() {
-    $("scanInput").hidden = true;
-    $("scanTitle").textContent = "Eintrag";
-    renderReview(blankReceipt());
-    openSheet("scanSheet");
-  }
-
-  function closeScanSheet() {
-    closeSheet("scanSheet");
-    setTimeout(function () {
-      $("scanInput").hidden = false;
-      $("review").hidden = true;
-      $("dropInner").hidden = false;
-      $("preview").hidden = true;
-      $("ocrText").value = "";
-      $("file").value = "";
-      selectedImage = null;
-      $("scanStatus").hidden = true;
-      updateScanButton();
-    }, 260);
-  }
-
   function exportCsv() {
     const rows = [["Laden", "Datum", "Artikel", "Kategorie", "Menge", "Preis", "Waehrung", "Belegsumme"]];
     book.receipts.forEach(function (r) {
@@ -922,40 +732,17 @@
     }
   }
 
-  $("add").addEventListener("click", function () {
-    openScanFlow();
-    $("file").click();
-  });
-  $("manualAction").addEventListener("click", manualAdd);
+  $("add").addEventListener("click", function () { $("file").click(); });
   $("settings").addEventListener("click", function () { openSheet("settingsSheet"); });
-  $("scanClose").addEventListener("click", closeScanSheet);
   $("settingsClose").addEventListener("click", function () { closeSheet("settingsSheet"); });
+  $("settingsSheet").addEventListener("click", function (e) { if (e.target === $("settingsSheet")) closeSheet("settingsSheet"); });
 
-  ["scanSheet", "settingsSheet"].forEach(function (id) {
-    const b = $(id);
-    b.addEventListener("click", function (e) { if (e.target === b) closeSheet(id); });
-  });
-
-  $("scan").addEventListener("click", scan);
   $("share").addEventListener("click", share);
   $("exportCsv").addEventListener("click", exportCsv);
-  $("ocrText").addEventListener("input", updateScanButton);
   $("file").addEventListener("change", function () {
     const f = $("file").files && $("file").files[0];
-    if (f) { openScanFlow(); handleImage(f); }
-  });
-
-  const drop = $("drop");
-  drop.addEventListener("click", function () { $("file").click(); });
-  ["dragenter", "dragover"].forEach(function (ev) {
-    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add("over"); });
-  });
-  ["dragleave", "drop"].forEach(function (ev) {
-    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove("over"); });
-  });
-  drop.addEventListener("drop", function (e) {
-    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-    if (f) handleImage(f);
+    $("file").value = "";
+    if (f) scanImageFile(f);
   });
 
   document.addEventListener("visibilitychange", function () {

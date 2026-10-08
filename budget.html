@@ -404,6 +404,7 @@
       <input id="modelFile" class="grow" type="file" accept=".task,.bin,.litertlm">
     </div>
     <div class="toggles">
+      <label class="chk" id="serverScanRow" hidden><input type="checkbox" id="serverScan" checked> Auf Server scannen (empfohlen)</label>
       <label class="chk"><input type="checkbox" id="vision" checked> Bild senden</label>
       <label class="chk"><input type="checkbox" id="useGpu" checked> WebGPU</label>
     </div>
@@ -427,6 +428,7 @@
 (function () {
   const BOOK_KEY = "haushaltsgame.budget.v1";
   const MODEL_KEY = "haushaltsgame.budget.model";
+  const SCAN_KEY = "haushaltsgame.budget.serverscan";
   const CACHE_FLAG_PREFIX = "haushaltsgame.budget.modelcache.";
   const LOAD_FLAG = "haushaltsgame.budget.loading";
   const DEFAULT_MODEL = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it-web.task";
@@ -452,6 +454,7 @@
 
   let llm = null;
   let selectedImage = null;
+  let serverScanEnabled = false;
 
   function parseToken() {
     const segs = decodeURIComponent(location.pathname).replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
@@ -522,6 +525,12 @@
     }
     $("modelUrl").value = savedUrl;
     syncPreset();
+    if (serverMode) {
+      const savedScan = localStorage.getItem(SCAN_KEY);
+      $("serverScan").checked = savedScan === null ? true : savedScan === "1";
+      $("serverScanRow").hidden = false;
+    }
+    serverScanEnabled = serverMode && $("serverScan").checked;
     if (localStorage.getItem(CACHE_FLAG_PREFIX + modelKey(savedUrl))) showClearModel(true);
     try {
       const t = Number(sessionStorage.getItem(LOAD_FLAG)) || 0;
@@ -882,7 +891,7 @@
 
   function updateModelNotice() {
     const notice = $("modelNotice");
-    if (notice) notice.hidden = !!llm;
+    if (notice) notice.hidden = serverScanEnabled || !!llm;
   }
 
   async function loadModel() {
@@ -972,19 +981,39 @@
 
   function updateScanButton() {
     const hasInput = !!selectedImage || !!$("ocrText").value.trim();
-    $("scan").disabled = !(llm && hasInput);
+    $("scan").disabled = !((serverScanEnabled || llm) && hasInput);
   }
 
-  async function scan() {
-    if (!llm) return;
-    const vision = $("vision").checked;
+  async function scanOnServer(image, text) {
+    const r = await fetch("/api/scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: token, image: image || "", text: text || "" })
+    });
+    const j = await r.json().catch(function () { return null; });
+    if (!r.ok) throw new Error((j && j.error) || ("HTTP " + r.status));
+    if (!j || !j.receipt) throw new Error("Leere Antwort");
+    return normalizeReceipt(j.receipt);
+  }
+
+  async function scanOnDevice(image, text, status) {
     const g4 = /gemma-?4/i.test($("modelUrl").value || "");
     const parts = [g4 ? "<|turn>user\n" : "<start_of_turn>user\n"];
-    if (vision && selectedImage) parts.push({ imageSource: selectedImage });
-    const text = $("ocrText").value.trim();
+    if (image) parts.push({ imageSource: image });
     if (text) parts.push("Kassenbon-Text:\n" + text + "\n\n");
     parts.push(buildPrompt());
     parts.push(g4 ? "<turn|>\n<|turn>model\n" : "<end_of_turn>\n<start_of_turn>model\n");
+    const result = await llm.generateResponse(parts, function () {
+      status.textContent = "Scanne…";
+    });
+    return normalizeReceipt(extractJson(result));
+  }
+
+  async function scan() {
+    const vision = $("vision").checked;
+    const text = $("ocrText").value.trim();
+    const useImage = vision ? selectedImage : null;
+    if (!((serverScanEnabled || llm) && (useImage || text))) return;
 
     const status = $("scanStatus");
     status.hidden = false;
@@ -993,10 +1022,13 @@
     $("scan").textContent = "Scanne…";
 
     try {
-      const result = await llm.generateResponse(parts, function () {
-        status.textContent = "Scanne…";
-      });
-      const parsed = normalizeReceipt(extractJson(result));
+      let parsed;
+      if (serverScanEnabled) {
+        const image = useImage ? selectedImage.toDataURL("image/jpeg", 0.85) : "";
+        parsed = await scanOnServer(image, text);
+      } else {
+        parsed = await scanOnDevice(useImage, text, status);
+      }
       status.hidden = true;
       if (!parsed || (!parsed.items.length && !parsed.total && !parsed.merchant)) {
         showToast("Keine Einträge erkannt");
@@ -1007,6 +1039,7 @@
       }
     } catch (e) {
       showToast("Fehler beim Scannen");
+      status.hidden = false;
       status.textContent = String(e && e.message ? e.message : e);
     }
     $("scan").disabled = false;
@@ -1285,6 +1318,12 @@
   $("share").addEventListener("click", share);
   $("exportCsv").addEventListener("click", exportCsv);
   $("ocrText").addEventListener("input", updateScanButton);
+  $("serverScan").addEventListener("change", function () {
+    serverScanEnabled = serverMode && this.checked;
+    try { localStorage.setItem(SCAN_KEY, this.checked ? "1" : "0"); } catch (e) {}
+    updateModelNotice();
+    updateScanButton();
+  });
   $("file").addEventListener("change", function () { handleImage($("file").files && $("file").files[0]); });
 
   const drop = $("drop");

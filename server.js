@@ -9,9 +9,34 @@ const PORT = process.env.PORT || 8080;
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const INDEX = path.join(__dirname, "index.html");
 const BUDGET = path.join(__dirname, "budget.html");
-const MAX_BODY = 6 * 1024 * 1024;
+const MAX_BODY = 12 * 1024 * 1024;
 const TOKEN_RE = /^[A-Za-z0-9_-]{6,40}$/;
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+const DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
+const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-flash";
+
+const SCAN_SYSTEM_PROMPT =
+  "Du bist ein Kassenzettel-Scanner. Lies den Kassenbon (Bild und/oder Text) und " +
+  "antworte AUSSCHLIESSLICH mit einem JSON-Objekt, ohne Erklaerung, ohne Markdown. " +
+  "Format: " +
+  '{"merchant":"Ladenname","date":"YYYY-MM-DD","currency":"EUR","total":12.34,' +
+  '"items":[{"name":"Artikel","qty":1,"price":1.23}]} ' +
+  "Regeln: price ist der Gesamtpreis der Position. Sind Einzelpreis und Menge gegeben, " +
+  "multipliziere sie. Fehlt total, summiere die Positionen. Gib alle Positionen aus. " +
+  "Wenn nichts erkannt wird, verwende leere Strings/Arrays und total 0.";
+
+const scanHits = new Map();
+
+function allowScan(token) {
+  const now = Date.now();
+  const windowMs = 60 * 60 * 1000;
+  const max = Number(process.env.SCAN_MAX_PER_HOUR) || 60;
+  const hits = (scanHits.get(token) || []).filter(function (t) { return now - t < windowMs; });
+  if (hits.length >= max) { scanHits.set(token, hits); return false; }
+  hits.push(now);
+  scanHits.set(token, hits);
+  return true;
+}
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -253,6 +278,104 @@ const server = http.createServer(async function (req, res) {
       return;
     }
     sendJSON(res, 405, { error: "method not allowed" });
+    return;
+  }
+
+  if (pathname === "/api/scan" && method === "POST") {
+    const apiKey = process.env.DEEPSEEK_API_KEY;
+    if (!apiKey) {
+      sendJSON(res, 503, { error: "Scan ist nicht konfiguriert (DEEPSEEK_API_KEY fehlt)." });
+      return;
+    }
+    let body;
+    try {
+      body = await readBody(req);
+    } catch (e) {
+      sendJSON(res, 413, { error: "Anfrage zu groß" });
+      return;
+    }
+    const token = String((body && body.token) || "");
+    if (!TOKEN_RE.test(token) || !fs.existsSync(fileFor(token))) {
+      sendJSON(res, 403, { error: "Unbekanntes Token" });
+      return;
+    }
+    const image = typeof (body && body.image) === "string" ? body.image : "";
+    const text = typeof (body && body.text) === "string" ? body.text.slice(0, 8000) : "";
+    if (!image && !text) {
+      sendJSON(res, 400, { error: "Kein Bild oder Text übermittelt" });
+      return;
+    }
+    if (image.length > 8 * 1024 * 1024) {
+      sendJSON(res, 413, { error: "Bild zu groß" });
+      return;
+    }
+    if (!allowScan(token)) {
+      sendJSON(res, 429, { error: "Zu viele Anfragen. Bitte kurz warten." });
+      return;
+    }
+
+    const userContent = [
+      { type: "text", text: text ? ("Kassenbon-Text:\n" + text) : "Lies diesen Kassenbon." }
+    ];
+    if (image) {
+      const url = /^data:/i.test(image) ? image : ("data:image/jpeg;base64," + image);
+      userContent.push({ type: "image_url", image_url: { url: url } });
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(function () { controller.abort(); }, 60000);
+    try {
+      const r = await fetch(DEEPSEEK_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + apiKey
+        },
+        body: JSON.stringify({
+          model: DEEPSEEK_MODEL,
+          messages: [
+            { role: "system", content: SCAN_SYSTEM_PROMPT },
+            { role: "user", content: userContent }
+          ],
+          response_format: { type: "json_object" },
+          temperature: 0,
+          max_tokens: 2048
+        }),
+        signal: controller.signal
+      });
+      clearTimeout(timer);
+      if (!r.ok) {
+        let detail = "";
+        try {
+          const j = await r.json();
+          detail = j && j.error && j.error.message ? j.error.message : "";
+        } catch (e) {}
+        sendJSON(res, 502, { error: "DeepSeek-Fehler " + r.status + (detail ? ": " + detail : "") });
+        return;
+      }
+      const j = await r.json();
+      const content = j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
+      if (!content) {
+        sendJSON(res, 502, { error: "Leere Antwort vom Modell" });
+        return;
+      }
+      let receipt = null;
+      try {
+        receipt = JSON.parse(content);
+      } catch (e) {
+        const m = content.match(/\{[\s\S]*\}/);
+        if (m) { try { receipt = JSON.parse(m[0]); } catch (e2) { receipt = null; } }
+      }
+      if (!receipt || typeof receipt !== "object") {
+        sendJSON(res, 502, { error: "Antwort nicht lesbar" });
+        return;
+      }
+      sendJSON(res, 200, { receipt: receipt });
+    } catch (e) {
+      clearTimeout(timer);
+      const aborted = e && e.name === "AbortError";
+      sendJSON(res, 504, { error: aborted ? "Zeitüberschreitung" : "Scan fehlgeschlagen" });
+    }
     return;
   }
 

@@ -102,6 +102,7 @@
   .entry.open .entry-items { display: block; }
   .entry-item { display: flex; justify-content: space-between; gap: 12px; font-size: .85rem; color: #4b5563; padding: 6px 0; }
   .entry-item .price { font-variant-numeric: tabular-nums; color: var(--muted); }
+  .entry-item .cat { color: var(--muted); font-size: .78rem; }
   .entry-del {
     display: block;
     width: calc(100% + 32px);
@@ -284,8 +285,11 @@
 
   .review-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
   .items-edit { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
-  .item-edit { display: grid; grid-template-columns: 1fr 64px 96px 40px; gap: 8px; align-items: center; }
-  .item-edit .btn.ghost { padding: 8px; font-size: 1rem; color: var(--muted); border: 0; background: transparent; }
+  .item-edit { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .item-edit .it-name, .item-edit .it-cat { flex: 1 1 100%; }
+  .item-edit .it-qty { flex: 0 0 64px; }
+  .item-edit .it-price { flex: 1 1 90px; }
+  .item-edit .btn.ghost { flex: 0 0 36px; padding: 8px; font-size: 1rem; color: var(--muted); border: 0; background: transparent; }
   .review-actions { display: flex; gap: 10px; margin-top: 6px; }
   .review-actions .btn { flex: 1; }
 
@@ -314,8 +318,6 @@
 
   @media (max-width: 420px) {
     .review-grid { grid-template-columns: 1fr; }
-    .item-edit { grid-template-columns: 1fr 1fr 40px; }
-    .item-edit .it-name { grid-column: 1 / -1; }
   }
 </style>
 </head>
@@ -394,6 +396,18 @@
 (function () {
   const BOOK_KEY = "haushaltsgame.budget.v1";
   const TOKEN_RE = /^[A-Za-z0-9_-]{6,40}$/;
+  const CATEGORIES = [
+    "Lebensmittel", "Obst & Gemüse", "Backwaren", "Fleisch & Wurst",
+    "Milchprodukte", "Getränke", "Tiefkühl", "Snacks & Süßes",
+    "Drogerie & Hygiene", "Haushalt & Reinigung", "Tierbedarf", "Sonstiges"
+  ];
+  function normalizeCategory(v) {
+    const s = String(v || "").trim().toLowerCase();
+    for (let i = 0; i < CATEGORIES.length; i++) {
+      if (CATEGORIES[i].toLowerCase() === s) return CATEGORIES[i];
+    }
+    return "Sonstiges";
+  }
 
   const $ = function (id) { return document.getElementById(id); };
   const el = function (tag, cls, text) {
@@ -428,6 +442,7 @@
     if (!b || typeof b !== "object" || !Array.isArray(b.receipts)) return emptyBook();
     b.receipts.forEach(function (r) {
       if (!Array.isArray(r.items)) r.items = [];
+      r.items.forEach(function (it) { it.category = normalizeCategory(it.category); });
       r.total = parseMoney(r.total);
       if (!r.total) r.total = r.items.reduce(function (s, it) { return s + (Number(it.price) || 0); }, 0);
     });
@@ -563,7 +578,7 @@
     const items = [];
     if (Array.isArray(rawItems)) {
       rawItems.forEach(function (it) {
-        if (typeof it === "string") { items.push({ id: uid(), name: it, qty: 1, price: 0 }); return; }
+        if (typeof it === "string") { items.push({ id: uid(), name: it, qty: 1, price: 0, category: "Sonstiges" }); return; }
         if (!it || typeof it !== "object") return;
         const qty = parseMoney(pick(it, ["qty", "quantity", "menge", "count", "anzahl"])) || 1;
         let price = parseMoney(pick(it, ["price", "total", "summe", "betrag", "amount", "gesamt"]));
@@ -572,7 +587,8 @@
           price = unit * qty;
         }
         const name = pick(it, ["name", "artikel", "item", "description", "bezeichnung", "produkt", "text"]);
-        items.push({ id: uid(), name: String(name || "Artikel"), qty: qty, price: price });
+        const category = normalizeCategory(pick(it, ["category", "kategorie", "cat", "warengruppe"]));
+        items.push({ id: uid(), name: String(name || "Artikel"), qty: qty, price: price, category: category });
       });
     }
     const merchant = String(pick(obj, ["merchant", "store", "shop", "vendor", "laden", "geschaeft", "geschäft", "haendler", "händler", "name"]) || "");
@@ -676,6 +692,13 @@
     name.type = "text";
     name.placeholder = "Artikel";
     name.value = it.name || "";
+    const cat = el("select", "it-cat");
+    CATEGORIES.forEach(function (c) {
+      const o = el("option", null, c);
+      o.value = c;
+      cat.appendChild(o);
+    });
+    cat.value = normalizeCategory(it.category);
     const qty = el("input", "it-qty");
     qty.type = "number";
     qty.inputMode = "decimal";
@@ -694,6 +717,7 @@
     rm.title = "Position entfernen";
     rm.addEventListener("click", function () { row.remove(); });
     row.appendChild(name);
+    row.appendChild(cat);
     row.appendChild(qty);
     row.appendChild(price);
     row.appendChild(rm);
@@ -727,7 +751,7 @@
 
     const add = el("button", "btn block ghost-add", "+ Position");
     add.type = "button";
-    add.addEventListener("click", function () { items.appendChild(itemRow({ name: "", qty: 1, price: 0 })); });
+    add.addEventListener("click", function () { items.appendChild(itemRow({ name: "", qty: 1, price: 0, category: "Sonstiges" })); });
     box.appendChild(add);
 
     const actions = el("div", "review-actions");
@@ -748,7 +772,8 @@
         id: uid(),
         name: row.querySelector(".it-name").value.trim() || "Artikel",
         qty: parseMoney(row.querySelector(".it-qty").value) || 1,
-        price: parseMoney(row.querySelector(".it-price").value)
+        price: parseMoney(row.querySelector(".it-price").value),
+        category: normalizeCategory(row.querySelector(".it-cat").value)
       };
     }).filter(function (it) { return it.name || it.price; });
     return {
@@ -806,6 +831,7 @@
         const nm = el("span");
         nm.appendChild(el("span", null, (it.qty || 1) + "× "));
         nm.appendChild(document.createTextNode(it.name || "Artikel"));
+        if (it.category) nm.appendChild(el("span", "cat", " · " + it.category));
         row.appendChild(nm);
         row.appendChild(el("span", "price", fmt(it.price, r.currency)));
         items.appendChild(row);
@@ -863,13 +889,13 @@
   }
 
   function exportCsv() {
-    const rows = [["Laden", "Datum", "Artikel", "Menge", "Preis", "Waehrung", "Belegsumme"]];
+    const rows = [["Laden", "Datum", "Artikel", "Kategorie", "Menge", "Preis", "Waehrung", "Belegsumme"]];
     book.receipts.forEach(function (r) {
       if (!r.items.length) {
-        rows.push([r.merchant, r.date, "", "", "", r.currency, r.total]);
+        rows.push([r.merchant, r.date, "", "", "", "", r.currency, r.total]);
       } else {
         r.items.forEach(function (it) {
-          rows.push([r.merchant, r.date, it.name, it.qty, it.price, r.currency, r.total]);
+          rows.push([r.merchant, r.date, it.name, it.category || "", it.qty, it.price, r.currency, r.total]);
         });
       }
     });

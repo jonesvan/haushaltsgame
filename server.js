@@ -66,14 +66,34 @@ async function deepseekScan(apiKey, userContent) {
 }
 
 
+const CATEGORIES = [
+  "Lebensmittel", "Obst & Gemüse", "Backwaren", "Fleisch & Wurst",
+  "Milchprodukte", "Getränke", "Tiefkühl", "Snacks & Süßes",
+  "Drogerie & Hygiene", "Haushalt & Reinigung", "Tierbedarf", "Sonstiges"
+];
+
+function normCategory(v) {
+  const s = String(v || "").trim().toLowerCase();
+  for (let i = 0; i < CATEGORIES.length; i++) {
+    if (CATEGORIES[i].toLowerCase() === s) return CATEGORIES[i];
+  }
+  return "Sonstiges";
+}
+
 const SCAN_SYSTEM_PROMPT =
   "Du bist ein Kassenzettel-Scanner. Lies den Kassenbon (Bild und/oder Text) und " +
   "antworte AUSSCHLIESSLICH mit einem JSON-Objekt, ohne Erklaerung, ohne Markdown. " +
   "Format: " +
   '{"merchant":"Ladenname","date":"YYYY-MM-DD","currency":"EUR","total":12.34,' +
-  '"items":[{"name":"Artikel","qty":1,"price":1.23}]} ' +
-  "Regeln: price ist der Gesamtpreis der Position. Sind Einzelpreis und Menge gegeben, " +
+  '"items":[{"name":"Artikel","qty":1,"price":1.23,"category":"Lebensmittel"}]} ' +
+  "Regeln: " +
+  "price ist der Gesamtpreis der Position. Sind Einzelpreis und Menge gegeben, " +
   "multipliziere sie. Fehlt total, summiere die Positionen. Gib alle Positionen aus. " +
+  "Korrigiere jeden Artikelnamen: repariere fehlende oder falsche Buchstaben und " +
+  "offensichtliche OCR-Fehler, normalisiere Gross-/Kleinschreibung und entferne " +
+  "unnuetige Artikelnummern oder Codes, sodass ein lesbarer Produktname entsteht. " +
+  "Ordne jedem Artikel GENAU EINE Kategorie aus dieser Liste zu: " +
+  CATEGORIES.join(", ") + ". " +
   "Wenn nichts erkannt wird, verwende leere Strings/Arrays und total 0.";
 
 const scanHits = new Map();
@@ -181,7 +201,8 @@ function sanitizeBook(input) {
           id: String(it && it.id || rid()),
           name: String(it && it.name || ""),
           qty: Number(it && it.qty) || 1,
-          price: round2(it && it.price)
+          price: round2(it && it.price),
+          category: normCategory(it && it.category)
         };
       }) : [];
       return {
@@ -392,6 +413,11 @@ const server = http.createServer(async function (req, res) {
         sendJSON(res, 502, { error: "Leere Antwort vom Modell" });
       }
       return;
+    }
+    if (Array.isArray(receipt.items)) {
+      receipt.items.forEach(function (it) {
+        if (it && typeof it === "object") it.category = normCategory(it.category);
+      });
     }
     sendJSON(res, 200, { receipt: receipt });
     return;

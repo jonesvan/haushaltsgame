@@ -391,12 +391,13 @@
 
     <label class="field-label">Modell</label>
     <select id="modelPreset">
-      <option value="https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it-web.litertlm">Gemma 4 E2B · ~2 GB · empfohlen</option>
-      <option value="https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it-web.litertlm">Gemma 4 E4B · ~3 GB</option>
+      <option value="https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it-web.task">Gemma 4 E2B · ~2 GB · empfohlen</option>
+      <option value="https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it-web.task">Gemma 4 E4B · ~3 GB</option>
+      <option value="https://huggingface.co/google/gemma-3n-E2B-it-litert-lm/resolve/main/gemma-3n-E2B-it-int4-Web.litertlm">Gemma 3n E2B · Fallback (HF-Lizenz nötig)</option>
       <option value="">Eigene URL…</option>
     </select>
     <div class="row-inline">
-      <input id="modelUrl" class="grow" type="url" placeholder="https://…/model.litertlm">
+      <input id="modelUrl" class="grow" type="url" placeholder="https://…/model.task">
       <button class="btn" id="loadModel">Laden</button>
     </div>
     <div class="row-inline">
@@ -410,7 +411,7 @@
       <div class="progress-track"><div class="progress-bar" id="modelProgressBar"></div></div>
       <span class="progress-text" id="modelProgressText"></span>
     </div>
-    <p class="hint" id="modelStatus">Empfohlen: Gemma&nbsp;4 E2B (.litertlm, ~2&nbsp;GB). Wird einmalig heruntergeladen, im Gerät gespeichert und läuft komplett im Browser. Benötigt WebGPU (iOS&nbsp;18 / Safari&nbsp;18) und viel Arbeitsspeicher.</p>
+    <p class="hint" id="modelStatus">Empfohlen: Gemma&nbsp;4 E2B (.task, ~2&nbsp;GB). Wird einmalig heruntergeladen, im Gerät gespeichert und läuft komplett im Browser. Benötigt WebGPU (iOS&nbsp;26+ / Safari&nbsp;26+) und viel Arbeitsspeicher.</p>
     <button class="link" id="clearModel" style="margin-top:12px" hidden>Modell-Cache löschen</button>
 
     <div class="settings-actions">
@@ -428,7 +429,7 @@
   const MODEL_KEY = "haushaltsgame.budget.model";
   const CACHE_FLAG_PREFIX = "haushaltsgame.budget.modelcache.";
   const LOAD_FLAG = "haushaltsgame.budget.loading";
-  const DEFAULT_MODEL = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it-web.litertlm";
+  const DEFAULT_MODEL = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it-web.task";
   const GENAI_CDN = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-genai@0.10.29";
   const TOKEN_RE = /^[A-Za-z0-9_-]{6,40}$/;
 
@@ -515,8 +516,8 @@
 
   async function boot() {
     let savedUrl = localStorage.getItem(MODEL_KEY) || DEFAULT_MODEL;
-    if (/gemma-4-(E2B|E4B)-it-web\.task$/i.test(savedUrl)) {
-      savedUrl = savedUrl.replace(/\.task$/i, ".litertlm");
+    if (/gemma-4-(E2B|E4B)-it-web\.litertlm$/i.test(savedUrl)) {
+      savedUrl = savedUrl.replace(/\.litertlm$/i, ".task");
       try { localStorage.setItem(MODEL_KEY, savedUrl); } catch (e) {}
     }
     $("modelUrl").value = savedUrl;
@@ -526,7 +527,7 @@
       const t = Number(sessionStorage.getItem(LOAD_FLAG)) || 0;
       sessionStorage.removeItem(LOAD_FLAG);
       if (t && Date.now() - t < 180000) {
-        setStatus("Das letzte Modellladen hat den Browser überlastet (zu wenig Arbeitsspeicher). Bitte ein kleineres Modell wählen (.litertlm, E2B).", "error");
+        setStatus("Das letzte Modellladen hat den Browser überlastet (zu wenig Arbeitsspeicher). Bitte ein kleineres Modell wählen (Gemma 4 E2B).", "error");
         showToast("Zu wenig Speicher – kleineres Modell wählen");
       }
     } catch (e) {}
@@ -892,11 +893,8 @@
     if (!url && !localFile) { setStatus("Bitte Modell-URL angeben oder Datei wählen.", "error"); return; }
 
     if (useGpu && !navigator.gpu) {
-      setStatus("WebGPU ist auf diesem Gerät nicht verfügbar. iOS benötigt mindestens iOS 18 / Safari 18. Alternativ „WebGPU“ deaktivieren.", "error");
+      setStatus("WebGPU ist auf diesem Gerät nicht verfügbar. iOS benötigt iOS 26+ / Safari 26+ mit aktiviertem WebGPU. Alternativ „WebGPU“ deaktivieren.", "error");
       return;
-    }
-    if (url && /\.task(\?|$)/i.test(url)) {
-      showToast(".task lädt doppelt in den Speicher – .litertlm empfohlen");
     }
 
     $("loadModel").disabled = true;
@@ -921,7 +919,7 @@
 
       const options = {
         baseOptions: baseOptions,
-        maxTokens: 2048,
+        maxTokens: 1024,
         topK: 1,
         temperature: 0,
         randomSeed: 0
@@ -938,7 +936,12 @@
       showToast("Modell geladen");
     } catch (e) {
       try { sessionStorage.removeItem(LOAD_FLAG); } catch (e2) {}
-      setStatus("Modell konnte nicht geladen werden: " + (e && e.message ? e.message : e), "error");
+      const msg = e && e.message ? e.message : String(e);
+      if (/HTTP (401|403)/.test(msg)) {
+        setStatus("Zugriff verweigert (401/403). Dieses Modell ist auf HuggingFace gesperrt und benötigt eine Lizenz/einen Token. Bitte Gemma 4 wählen.", "error");
+      } else {
+        setStatus("Modell konnte nicht geladen werden: " + msg, "error");
+      }
       hideProgress();
     }
     $("loadModel").disabled = false;
@@ -975,11 +978,13 @@
   async function scan() {
     if (!llm) return;
     const vision = $("vision").checked;
-    const parts = [];
+    const g4 = /gemma-?4/i.test($("modelUrl").value || "");
+    const parts = [g4 ? "<|turn>user\n" : "<start_of_turn>user\n"];
     if (vision && selectedImage) parts.push({ imageSource: selectedImage });
     const text = $("ocrText").value.trim();
-    if (text) parts.push("Kassenbon-Text:\n" + text);
+    if (text) parts.push("Kassenbon-Text:\n" + text + "\n\n");
     parts.push(buildPrompt());
+    parts.push(g4 ? "<turn|>\n<|turn>model\n" : "<end_of_turn>\n<start_of_turn>model\n");
 
     const status = $("scanStatus");
     status.hidden = false;
